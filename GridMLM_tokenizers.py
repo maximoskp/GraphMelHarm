@@ -32,10 +32,10 @@ INT_TO_ROOT_SHARP = {
 def get_chord_pitch_features(c):
     # c is a CHORD_FEATURE dict with keys: 'quality', 'root', 'pitch_classes'
     #
-    # returns a tensor of tensors (N, 6), where N is the number of pitches
-    # in the chord and 6 is the number of features
-    # (root, third, fifth, seventh, extension, melody_pitch (always zero here))
-    feats = torch.zeros((len(c['pitch_classes']), 6), dtype=torch.float32)
+    # returns a tensor of tensors (N, 7), where N is the number of pitches
+    # in the chord and 7 is the number of features
+    # (root, third, fifth, seventh, extension, chord_pitch (always one here), melody_pitch (always zero here))
+    feats = torch.zeros((len(c['pitch_classes']), 7), dtype=torch.float32)
     for i,p in enumerate(c['pitch_classes']):
         feats[i] = torch.tensor([
             p == c['root'],
@@ -43,7 +43,7 @@ def get_chord_pitch_features(c):
             (c['root'] + 7) % 12 == p or (c['root'] + 6) % 12 == p,
             (c['root'] + 10) % 12 == p or (c['root'] + 11) % 12 == p,
             any((c['root'] + ext) % 12 == p for ext in [1,2,5,8,9]),
-            0
+            1, 0
         ], dtype=torch.float32)
     return feats
 # end get_chord_pitch_features
@@ -51,11 +51,11 @@ def get_chord_pitch_features(c):
 def get_chord_melody_features(c, melody_pitches):
     # c is a CHORD_FEATURE dict with keys: 'quality', 'root', 'pitch_classes'
     #
-    # returns a tensor of tensors (N, 6), where N is the number of pitches
-    # in the melody and 6 is the number of features
-    # (root, third, fifth, seventh, extension, melody_pitch (always one here))
+    # returns a tensor of tensors (N, 7), where N is the number of pitches
+    # in the melody and 7 is the number of features
+    # (root, third, fifth, seventh, extension, chord_pitch (always zero here), melody_pitch (always one here))
     nz_melody = np.where(melody_pitches > 0)[0]
-    feats = torch.zeros((len(nz_melody), 6), dtype=torch.float32)
+    feats = torch.zeros((len(nz_melody), 7), dtype=torch.float32)
     for i,p in enumerate(nz_melody):
         feats[i] = torch.tensor([
             p == c['root'],
@@ -63,7 +63,7 @@ def get_chord_melody_features(c, melody_pitches):
             (c['root'] + 7) % 12 == p or (c['root'] + 6) % 12 == p,
             (c['root'] + 10) % 12 == p or (c['root'] + 11) % 12 == p,
             any((c['root'] + ext) % 12 == p for ext in [1,2,5,8,9]),
-            1
+            0, 1
         ], dtype=torch.float32)
     return feats
 # end get_chord_melody_features
