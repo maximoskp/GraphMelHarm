@@ -29,45 +29,6 @@ INT_TO_ROOT_SHARP = {
     11: 'B',
 }
 
-def get_chord_pitch_features(c):
-    # c is a CHORD_FEATURE dict with keys: 'quality', 'root', 'pitch_classes'
-    #
-    # returns a tensor of tensors (N, 7), where N is the number of pitches
-    # in the chord and 7 is the number of features
-    # (root, third, fifth, seventh, extension, chord_pitch (always one here), melody_pitch (always zero here))
-    feats = torch.zeros((len(c['pitch_classes']), 7), dtype=torch.float32)
-    for i,p in enumerate(c['pitch_classes']):
-        feats[i] = torch.tensor([
-            p == c['root'],
-            (c['root'] + 4) % 12 == p or (c['root'] + 3) % 12 == p,
-            (c['root'] + 7) % 12 == p or (c['root'] + 6) % 12 == p,
-            (c['root'] + 10) % 12 == p or (c['root'] + 11) % 12 == p,
-            any((c['root'] + ext) % 12 == p for ext in [1,2,5,8,9]),
-            1, 0
-        ], dtype=torch.float32)
-    return feats
-# end get_chord_pitch_features
-
-def get_chord_melody_features(c, melody_pitches):
-    # c is a CHORD_FEATURE dict with keys: 'quality', 'root', 'pitch_classes'
-    #
-    # returns a tensor of tensors (N, 7), where N is the number of pitches
-    # in the melody and 7 is the number of features
-    # (root, third, fifth, seventh, extension, chord_pitch (always zero here), melody_pitch (always one here))
-    nz_melody = np.where(melody_pitches > 0)[0]
-    feats = torch.zeros((len(nz_melody), 7), dtype=torch.float32)
-    for i,p in enumerate(nz_melody):
-        feats[i] = torch.tensor([
-            p == c['root'],
-            (c['root'] + 4) % 12 == p or (c['root'] + 3) % 12 == p,
-            (c['root'] + 7) % 12 == p or (c['root'] + 6) % 12 == p,
-            (c['root'] + 10) % 12 == p or (c['root'] + 11) % 12 == p,
-            any((c['root'] + ext) % 12 == p for ext in [1,2,5,8,9]),
-            0, 1
-        ], dtype=torch.float32)
-    return feats
-# end get_chord_melody_features
-
 
 MIR_QUALITIES = mir_eval.chord.QUALITIES
 EXT_MIR_QUALITIES = deepcopy( MIR_QUALITIES )
@@ -81,12 +42,7 @@ for k in list(MIR_QUALITIES.keys()) + ['7(b9)', '7(#9)', '7(#11)', '7(b13)']:
         CHORD_FEATURES[ r_str + (len(k) > 0)*':' + k ] = {
             'quality': k,
             'root': rt,
-            'pitch_classes': np.where(bin_pcs)[0].tolist(),
-            'features': get_chord_pitch_features({
-                'quality': k,
-                'root': rt,
-                'pitch_classes': np.where(bin_pcs)[0].tolist()
-            })
+            'pitch_classes': np.where(bin_pcs)[0].tolist()
         }
 
 class CSGridMLMTokenizer(PreTrainedTokenizer):
