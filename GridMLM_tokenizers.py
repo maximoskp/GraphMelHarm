@@ -37,7 +37,8 @@ for k in list(MIR_QUALITIES.keys()) + ['7(b9)', '7(#9)', '7(#11)', '7(b13)']:
     _, semitone_bitmap, _ = mir_eval.chord.encode( 'C' + (len(k) > 0)*':' + k, reduce_extended_chords=True )
     EXT_MIR_QUALITIES[k] = semitone_bitmap
     for r_str in INT_TO_ROOT_SHARP.values():
-        rt, semitone_bitmap, _ = mir_eval.chord.encode( r_str + (len(k) > 0)*':' + k, reduce_extended_chords=True )
+        # rt, semitone_bitmap, _ = mir_eval.chord.encode( r_str + (len(k) > 0)*':' + k, reduce_extended_chords=True )
+        rt, _, _ = mir_eval.chord.encode( r_str + (len(k) > 0)*':' + k, reduce_extended_chords=True )
         bin_pcs = np.roll(semitone_bitmap, rt)
         CHORD_FEATURES[ r_str + (len(k) > 0)*':' + k ] = {
             'quality': k,
