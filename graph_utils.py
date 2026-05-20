@@ -1,0 +1,156 @@
+import GridMLM_tokenizers
+from GridMLM_tokenizers import CSGridMLMTokenizer
+import numpy as np
+from copy import deepcopy
+import torch
+
+tokenizer = CSGridMLMTokenizer(
+    fixed_length=80,
+    quantization='4th',
+    intertwine_bar_info=True,
+    trim_start=False,
+    use_pc_roll=True,
+    use_full_range_melody=False
+)
+
+chord_features = GridMLM_tokenizers.CHORD_FEATURES
+chord_id_features = {tokenizer.vocab[k]: v for k, v in chord_features.items()}
+
+def append_chord_objects_to_dataset(ds):
+    new_ds = []
+    for i in range(len(ds)):
+        print(f"Processing dataset item {i+1}/{len(ds)}", end='\r')
+        d = ds[i]
+        chord_objects = make_chord_objects_for_dataset_item(d, tokenizer)
+        d['chord_objects'] = chord_objects
+        new_ds.append(d)
+    return new_ds
+# end append_chord_objects_to_dataset
+
+def make_chord_objects_for_dataset_item(d, tokenizer):
+    harmony_ids = d['harmony_ids']
+    pianoroll = d['pianoroll']
+    bars = bar_split(harmony_ids, pianoroll, tokenizer)
+    chord_objects = make_chord_objects(bars)
+    return chord_objects
+# end make_chord_objects_for_dataset_item
+
+def bar_split(harmony_ids, pianoroll, tokenizer):
+    bars = []
+    current_bar = {
+        'chord_ids': [],
+        'melody_pcs': [],
+    }
+    for i, hid in enumerate(harmony_ids):
+        if hid == tokenizer.vocab['<bar>']:
+            if i != 0:  # avoid appending an empty bar at the start
+                bars.append(current_bar)
+            current_bar = {
+                'chord_ids': [],
+                'melody_pcs': []
+            }
+        else:
+            current_bar['chord_ids'].append(hid)
+            current_bar['melody_pcs'].append(np.where(pianoroll[i] > 0)[0])
+    if current_bar:
+        bars.append(current_bar)
+    return bars
+# end bar_split
+
+def make_chord_objects(bars):
+    bars_out = []
+    for bar in bars:
+        chord_objects = []
+        chord_ids = bar['chord_ids']
+        melody_pcs = bar['melody_pcs']
+        tmp_positions = []
+        tmp_melody_pcs = []
+        if len(chord_ids) > 0:
+            for i in range(len(chord_ids)):
+                hid = chord_ids[i]
+                if i > 0:
+                    if hid == chord_ids[i-1]:
+                        tmp_positions.append(i)
+                        tmp_melody_pcs.append(melody_pcs[i])
+                    else:
+                        chord_objects.append(Chord(chord_ids[i-1], tmp_positions, tmp_melody_pcs))
+                        tmp_positions = [i]
+                        tmp_melody_pcs = [melody_pcs[i]]
+                else:
+                    tmp_positions.append(i)
+                    tmp_melody_pcs.append(melody_pcs[i])
+            # end for
+            chord_objects.append(Chord(hid, tmp_positions, tmp_melody_pcs))
+        bars_out.append(chord_objects)
+    return bars_out
+# end make_chord_objects
+
+class Chord:
+    def __init__(self, chord_id, bar_positions, melody_pcs):
+        self.chord_id = chord_id
+        self.bar_positions = bar_positions
+        self.melody_pcs = melody_pcs
+        if self.chord_id in chord_id_features.keys():
+            self.get_chord_pitch_features()
+            self.get_chord_melody_features()
+        else:
+            self.graph_features = None
+    # end init
+
+    def get_chord_pitch_features(self):
+        c = deepcopy(chord_id_features[self.chord_id])
+        self.pitch_classes = c['pitch_classes']
+        self.pcs_map = {}
+        self.root = c['root']
+        # c is a CHORD_FEATURE dict with keys: 'quality', 'root', 'pitch_classes'
+        #
+        # returns a tensor of tensors (N, 8), where N is the number of pitches
+        # in the chord and 8 is the number of features
+        # (root, third, fifth, seventh, extension, chord_pitch (1), melody_pitch (0), offset_from_chord_start (0.0))
+        self.graph_features = torch.zeros((len(self.pitch_classes), 8), dtype=torch.float32)
+        for i,p in enumerate(self.pitch_classes):
+            self.pcs_map[p] = i
+            self.graph_features[i] = torch.tensor([
+                p == self.root,
+                (self.root + 4) % 12 == p or (self.root + 3) % 12 == p,
+                (self.root + 7) % 12 == p or (self.root + 6) % 12 == p,
+                (self.root + 10) % 12 == p or (self.root + 11) % 12 == p,
+                any((self.root + ext) % 12 == p for ext in [1,2,5,8,9]),
+                1, 0, 0.0
+            ], dtype=torch.float32)
+    # end get_chord_pitch_features
+
+    def get_chord_melody_features(self):
+        # c is a CHORD_FEATURE dict with keys: 'quality', 'root', 'pitch_classes'
+        #
+        # returns a tensor of tensors (N, 8), where N is the number of pitches
+        # in the melody and 8 is the number of features
+        # (root, third, fifth, seventh, extension, chord_pitch (0), melody_pitch (1), offset_from_chord_start (0.0))
+        for i, pcs in enumerate(self.melody_pcs):
+            for p in pcs:
+                if p in self.pcs_map.keys():
+                    self.graph_features[self.pcs_map[p], 6] = 1
+                else:
+                    self.pcs_map[p] = len(self.graph_features)
+                    self.pitch_classes.append(p)
+                    tmp_feats = torch.tensor([
+                        p == self.root,
+                        (self.root + 4) % 12 == p or (self.root + 3) % 12 == p,
+                        (self.root + 7) % 12 == p or (self.root + 6) % 12 == p,
+                        (self.root + 10) % 12 == p or (self.root + 11) % 12 == p,
+                        any((self.root + ext) % 12 == p for ext in [1,2,5,8,9]),
+                        0, 1, self.bar_positions[i]
+                    ], dtype=torch.float32)
+                    self.graph_features = torch.cat((self.graph_features, tmp_feats.unsqueeze(0)), dim=0)
+    # end get_chord_melody_features
+
+    def print_info(self):
+        print(f"Chord label: {tokenizer.ids_to_tokens[self.chord_id]}")
+        print(f"Pitch classes: {self.pitch_classes}")
+        print(f"Root: {self.root}")
+        print(f"Chord ID: {self.chord_id}")
+        print(f"Bar Positions: {self.bar_positions}")
+        print(f"Melody PCs: {self.melody_pcs}")
+        print(f"Graph Features:\n{self.graph_features}")
+    # end print_info
+# end class Chord
