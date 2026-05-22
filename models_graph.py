@@ -99,10 +99,10 @@ temporal_edge_index = torch.tensor([
 data["event", "next", "event"].edge_index = temporal_edge_index
 
 # Temporal edge features:
-# [delta_time, bar_distance]
+# [delta_time]
 
 temporal_edge_attr = torch.tensor([
-    [1.0, 0.0]
+    [0.5]
 ], dtype=torch.float)
 
 data["event", "next", "event"].edge_attr = temporal_edge_attr
@@ -240,6 +240,8 @@ class HarmonicGraphEncoder(nn.Module):
 
         super().__init__()
 
+        # self.register_buffer("pitch_ids", torch.arange(12))
+
         # ----------------------------------------------------
         # Pitch embedding
         # ----------------------------------------------------
@@ -280,7 +282,7 @@ class HarmonicGraphEncoder(nn.Module):
 
         self.temporal_mpnn = TemporalMPNN(
             hidden_dim=hidden_dim,
-            edge_dim=2
+            edge_dim=1
         )
 
         # ----------------------------------------------------
@@ -366,3 +368,88 @@ model = HarmonicGraphEncoder()
 z = model(data)
 
 print(z.shape)
+
+"""
+## Yes — your interpretation is mostly correct
+
+Both `ParticipationMPNN` and `TemporalMPNN` are doing message passing: 
+they compute edge-wise messages, aggregate them at destination nodes, 
+and return updated node features.
+
+But there are some important nuances:
+
+### What they both do
+
+1. `forward(...)` calls `self.propagate(...)`
+2. `propagate(...)`:
+   - prepares source/target features for each edge
+   - calls `message(...)` for every edge
+   - aggregates those messages per destination node using `aggr="add"`
+   - calls `update(...)` if defined
+   - returns the result
+
+So yes, the output is a new node representation that encodes information 
+flowing through the graph.
+
+---
+
+## Key difference between the two classes
+
+### `ParticipationMPNN`
+- Handles bipartite edges: `pitch -> event`
+- Input is `x=(x_pitch, x_event)`
+- `message(x_j, x_i, edge_attr)` computes a message from each pitch node 
+to its event node
+- `update(aggr_out, x)` combines:
+  - the aggregated messages for each event node
+  - the original event node features
+- Result: updated event features that fuse pitch context and original 
+event state
+
+### `TemporalMPNN`
+- Handles homogeneous edges: `event -> event`
+- Input is a single `x` tensor
+- `message(x_i, x_j, edge_attr)` computes messages between event nodes
+- No custom `update(...)` is defined
+- Default behavior: return the aggregated messages directly
+
+So the key nuance is:
+- `ParticipationMPNN` explicitly fuses old node state and incoming 
+messages
+- `TemporalMPNN` currently treats the aggregated messages as the final 
+updated event state
+
+---
+
+## What “information flow” really means here
+
+- `message(...)` computes how an edge transmits information
+- `aggr="add"` combines all incoming edge messages for each destination node
+- `update(...)` optionally refines the aggregated result using the existing 
+node state
+- The MLPs are the learnable functions that shape this process
+
+So yes, the learned MLPs parameterize the flow. But the actual computation 
+is not just “passing messages”; it is:
+- building edge features from node pair + edge attrs,
+- summarizing neighbors,
+- optionally combining with the current node embedding,
+- producing updated node embeddings.
+
+---
+
+## One more nuance
+
+The output of `propagate()` is a tensor of updated node embeddings, not 
+directly a task prediction. In your model:
+- `ParticipationMPNN` produces updated event embeddings
+- `TemporalMPNN` further refines those event embeddings
+- then you pool and project to get the final graph vector `z`
+
+That final `z` is what can be optimized for your task.
+
+So your high-level understanding is good. The missing detail is that the 
+graph neural layer is really about learning how to combine neighbor 
+messages and node state, and `propagate()` orchestrates that automatically.
+
+"""
