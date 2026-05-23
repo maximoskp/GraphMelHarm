@@ -26,6 +26,7 @@ class GraphFiLM(nn.Module):
 
         nn.init.zeros_(self.beta_proj.weight)
         nn.init.zeros_(self.beta_proj.bias)
+    # end init
 
     def forward(self, x, z_g):
         """
@@ -44,6 +45,8 @@ class GraphFiLM(nn.Module):
         beta = beta[:, None, None, :]
 
         return (1.0 + delta_gamma) * x + beta
+    # end forward
+# end class GraphFiLM
 
 
 class MultiHeadAttentionWithGraphFiLM(nn.Module):
@@ -81,6 +84,7 @@ class MultiHeadAttentionWithGraphFiLM(nn.Module):
         ])
 
         self.dropout = nn.Dropout(dropout)
+    # end init
 
     def forward(
         self,
@@ -134,8 +138,9 @@ class MultiHeadAttentionWithGraphFiLM(nn.Module):
             q_h = Q[:, h:h+1, :, :]
             k_h = K[:, h:h+1, :, :]
 
-            q_h = self.q_films[h](q_h, z_g)
-            k_h = self.k_films[h](k_h, z_g)
+            if z_g is not None:
+                q_h = self.q_films[h](q_h, z_g)
+                k_h = self.k_films[h](k_h, z_g)
 
             q_heads.append(q_h)
             k_heads.append(k_h)
@@ -175,6 +180,8 @@ class MultiHeadAttentionWithGraphFiLM(nn.Module):
         out = self.out_proj(out)
 
         return out
+    # end forward
+# end class MultiHeadAttentionWithGraphFiLM
 
 
 class TransformerBlockWithGraphFiLM(nn.Module):
@@ -207,6 +214,7 @@ class TransformerBlockWithGraphFiLM(nn.Module):
         )
 
         self.dropout = nn.Dropout(dropout)
+    # end init
 
     def forward(
         self,
@@ -238,3 +246,6 @@ class TransformerBlockWithGraphFiLM(nn.Module):
         x = self.norm2(x)
 
         return x
+    # end forward
+# end class TransformerBlockWithGraphFiLM
+
