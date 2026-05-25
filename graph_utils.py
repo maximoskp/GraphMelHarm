@@ -3,6 +3,7 @@ from GridMLM_tokenizers import CSGridMLMTokenizer
 import numpy as np
 from copy import deepcopy
 import torch
+from torch_geometric.data import HeteroData
 
 tokenizer = CSGridMLMTokenizer(
     fixed_length=80,
@@ -154,3 +155,67 @@ class Chord:
         print(f"Graph Features:\n{self.graph_features}")
     # end print_info
 # end class Chord
+
+def get_random_bar_chords_from_data(d):
+    # get a random range of bars - at most 4
+    bars_range = np.random.randint(1, 5)
+    bar_end = np.random.randint(bars_range, len(d['chord_objects'])+1)
+    bar_start = bar_end - bars_range
+
+    chord_objects = d['chord_objects'][bar_start:bar_end]
+
+    data = HeteroData()
+    # ============================================================
+    # PITCH NODES
+    # ============================================================
+
+    num_pitch_nodes = 12
+    # One-hot pitch identity
+    pitch_onehot = torch.eye(num_pitch_nodes)
+    data["pitch"].x = pitch_onehot
+
+    # ============================================================
+    # EVENT NODES
+    # ============================================================
+    num_events = 0
+    previous_time_positions = 0
+    tmp_delta = 0
+    event_features_list = []
+    edge_index_source_list = []
+    edge_index_target_list = []
+    edge_attr_list = []
+    temporal_edge_index_list = []
+    temporal_edge_attr_list = []
+    for i, bar in enumerate(chord_objects):
+        for j, chord in enumerate(bar):
+            event_features_list.append([chord.bar_positions[0]])
+            temporal_edge_index_list.append(num_events)
+            if num_events > 0:
+                delta_time = previous_time_positions
+                temporal_edge_attr_list.append([delta_time])
+            previous_time_positions = len(chord.bar_positions)
+            edge_attr_list.append(chord.graph_features)
+            for pc in chord.pitch_classes:
+                edge_index_source_list.append(pc)
+                edge_index_target_list.append(num_events)
+            num_events += 1
+    # event features
+    event_features = torch.tensor(event_features_list, dtype=torch.float)
+    data["event"].x = event_features
+    # participation index
+    edge_index = torch.tensor([edge_index_source_list, edge_index_target_list], dtype=torch.long)
+    data["pitch", "participates", "event"].edge_index = edge_index
+    # participation edge attributes
+    edge_attr = torch.cat(edge_attr_list, dim=0)
+    data["pitch", "participates", "event"].edge_attr = edge_attr
+    # temporal index
+    temporal_edge_index = torch.tensor([
+        temporal_edge_index_list[:-1],
+        temporal_edge_index_list[1:]
+    ], dtype=torch.long)
+    data["event", "next", "event"].edge_index = temporal_edge_index
+    # temporal edge attributes
+    temporal_edge_attr = torch.tensor(temporal_edge_attr_list, dtype=torch.float)
+    data["event", "next", "event"].edge_attr = temporal_edge_attr
+    return data
+# end get_random_bar_chords_from_data

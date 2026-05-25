@@ -105,6 +105,9 @@ class TemporalMPNN(MessagePassing):
                 x,
                 edge_index,
                 edge_attr):
+        
+        if edge_index.numel() == 0:
+            return x
 
         return self.propagate(
             edge_index,
@@ -236,7 +239,7 @@ class HarmonicGraphEncoder(nn.Module):
         # TEMPORAL MESSAGE PASSING
         # ====================================================
 
-        event_x = self.temporal_mpnn(
+        event_x = event_x + self.temporal_mpnn(
             event_x,
             data["event", "next", "event"].edge_index,
             data["event", "next", "event"].edge_attr
