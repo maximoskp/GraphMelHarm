@@ -466,4 +466,26 @@ class GraphConditionedSEModel(nn.Module):
 
         return attn_data
     # end get_attention_maps
+
+    # =========================================================
+    # Freeze and Unfreeze
+    # =========================================================
+
+    def freeze_base(self):
+        for param in self.parameters():
+            param.requires_grad = False
+        for layer in self.layers:
+            for attn in layer.attn.q_films:
+                for param in attn.parameters():
+                    param.requires_grad = True
+            for attn in layer.attn.k_films:
+                for param in attn.parameters():
+                    param.requires_grad = True
+    # end freeze_base
+
+    def unfreeze_all(self):
+        for param in self.parameters():
+            param.requires_grad = True
+    # end unfreeze_all
+
 # end class GraphConditionedSEModel

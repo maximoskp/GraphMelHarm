@@ -138,11 +138,13 @@ class TemporalMPNN(MessagePassing):
 class HarmonicGraphEncoder(nn.Module):
 
     def __init__(self,
-                 hidden_dim=64):
+                 hidden_dim=64,
+                 output_dim=128):
 
         super().__init__()
 
         # self.register_buffer("pitch_ids", torch.arange(12))
+        self.output_dim = output_dim
 
         # ----------------------------------------------------
         # Pitch embedding
@@ -193,7 +195,7 @@ class HarmonicGraphEncoder(nn.Module):
 
         self.to_latent = nn.Linear(
             hidden_dim,
-            128
+            self.output_dim
         )
     # end init
 
