@@ -449,6 +449,7 @@ def validation_curriculum_loop(curriculum_type, model, valloader, mask_token_id,
                     melody_grid.to(device),
                     harmony_input.to(device),
                     None,
+                    None,
                     False
                 )
 
