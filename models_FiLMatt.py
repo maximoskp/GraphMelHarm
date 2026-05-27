@@ -26,16 +26,16 @@ def sinusoidal_positional_encoding(seq_len, d_model, device):
 # end sinusoidal_positional_encoding
 
 # ============================================================
-# Graph FiLM
+# Id-centered FiLM
 # ============================================================
 
-class GraphFiLM(nn.Module):
+class IdCenteredFiLM(nn.Module):
 
-    def __init__(self, graph_dim, head_dim):
+    def __init__(self, guidance_dim, head_dim):
         super().__init__()
 
-        self.gamma_proj = nn.Linear(graph_dim, head_dim)
-        self.beta_proj = nn.Linear(graph_dim, head_dim)
+        self.gamma_proj = nn.Linear(guidance_dim, head_dim)
+        self.beta_proj = nn.Linear(guidance_dim, head_dim)
 
         # identity-centered init
         nn.init.zeros_(self.gamma_proj.weight)
@@ -54,20 +54,20 @@ class GraphFiLM(nn.Module):
 
         return (1.0 + delta_gamma) * x + beta
     # end forward
-# end class GraphFiLM
+# end class IdCenteredFiLM
 
 
 # ============================================================
-# Attention with Graph FiLM
+# Attention with Id-centered FiLM
 # ============================================================
 
-class MultiHeadAttentionWithGraphFiLM(nn.Module):
+class MultiHeadAttentionWithAttnFiLM(nn.Module):
 
     def __init__(
         self,
         d_model,
         num_heads,
-        graph_dim,
+        guidance_dim,
         dropout=0.1
     ):
         super().__init__()
@@ -85,12 +85,12 @@ class MultiHeadAttentionWithGraphFiLM(nn.Module):
         self.out_proj = nn.Linear(d_model, d_model)
 
         self.q_films = nn.ModuleList([
-            GraphFiLM(graph_dim, self.head_dim)
+            IdCenteredFiLM(guidance_dim, self.head_dim)
             for _ in range(num_heads)
         ])
 
         self.k_films = nn.ModuleList([
-            GraphFiLM(graph_dim, self.head_dim)
+            IdCenteredFiLM(guidance_dim, self.head_dim)
             for _ in range(num_heads)
         ])
 
@@ -213,29 +213,29 @@ class MultiHeadAttentionWithGraphFiLM(nn.Module):
 
         return out
     # end forward
-# end class MultiHeadAttentionWithGraphFiLM
+# end class MultiHeadAttentionWithAttnFiLM
 
 
 # ============================================================
 # Transformer Block
 # ============================================================
 
-class TransformerBlockWithGraphFiLM(nn.Module):
+class TransformerBlockWithAttnFiLM(nn.Module):
 
     def __init__(
         self,
         d_model,
         num_heads,
         ff_dim,
-        graph_dim,
+        guidance_dim,
         dropout=0.1
     ):
         super().__init__()
 
-        self.attn = MultiHeadAttentionWithGraphFiLM(
+        self.attn = MultiHeadAttentionWithAttnFiLM(
             d_model=d_model,
             num_heads=num_heads,
-            graph_dim=graph_dim,
+            guidance_dim=guidance_dim,
             dropout=dropout
         )
 
@@ -276,19 +276,19 @@ class TransformerBlockWithGraphFiLM(nn.Module):
 
         return x
     # end forward
-# end class TransformerBlockWithGraphFiLM
+# end class TransformerBlockWithAttnFiLM
 
 
 # ============================================================
 # Single Encoder Model
 # ============================================================
 
-class GraphConditionedSEModel(nn.Module):
+class AttnFiLMSEModel(nn.Module):
 
     def __init__(
         self,
         chord_vocab_size,
-        graph_dim,
+        guidance_dim,
         d_model=512,
         nhead=8,
         num_layers=8,
@@ -341,11 +341,11 @@ class GraphConditionedSEModel(nn.Module):
         # -----------------------------------------------------
 
         self.layers = nn.ModuleList([
-            TransformerBlockWithGraphFiLM(
+            TransformerBlockWithAttnFiLM(
                 d_model=d_model,
                 num_heads=nhead,
                 ff_dim=dim_feedforward,
-                graph_dim=graph_dim,
+                guidance_dim=guidance_dim,
                 dropout=dropout
             )
             for _ in range(num_layers)
@@ -483,9 +483,21 @@ class GraphConditionedSEModel(nn.Module):
                     param.requires_grad = True
     # end freeze_base
 
+    def freeze_FiLM(self):
+        for param in self.parameters():
+            param.requires_grad = True
+        for layer in self.layers:
+            for attn in layer.attn.q_films:
+                for param in attn.parameters():
+                    param.requires_grad = False
+            for attn in layer.attn.k_films:
+                for param in attn.parameters():
+                    param.requires_grad = False
+    # end freeze_base
+
     def unfreeze_all(self):
         for param in self.parameters():
             param.requires_grad = True
     # end unfreeze_all
 
-# end class GraphConditionedSEModel
+# end class AttnFiLMSEModel
