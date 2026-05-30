@@ -164,3 +164,100 @@ def latent_MH_collate_fn(batch):
         'latent': torch.stack(latents),  # shape: (B, latent_dim)
     }
 # end latent_MH_collate_fn
+
+# ============================================================
+# GRAPH DATASET
+# ============================================================
+
+class HarmonicGraphDataset(Dataset):
+
+    def __init__(
+        self,
+        data,
+        max_segment_bars=4
+    ):
+        self.data = data
+        self.max_segment_bars = max_segment_bars
+    # end init
+
+    def sample_segment_bounds(self, piece):
+        num_bars = len(piece['chord_objects'])
+        bars_range = np.random.randint(
+            1,
+            self.max_segment_bars + 1
+        )
+        end_bar = np.random.randint(
+            bars_range,
+            num_bars + 1
+        )
+        start_bar = end_bar - bars_range
+        return start_bar, end_bar
+    # end sample_segment_bounds
+
+    def __getitem__(self, idx):
+        piece = self.data[idx]
+        start_bar, end_bar = self.sample_segment_bounds(piece)
+
+        # ==========================================
+        # Extract canonical segment
+        # ==========================================
+        segment = extract_segment(
+            piece,
+            start_bar,
+            end_bar
+        )
+        # ==========================================
+        # Build transformed views
+        # ==========================================
+        temperature = 1.0 + np.random.rand() * 3.0
+        recomposed_segment = recompose_segment(
+            segment,
+            temperature=temperature
+        )
+        random_segment = randomize_segment(
+            segment
+        )
+
+        # ==========================================
+        # Build graphs
+        # ==========================================
+
+        real_graph = build_graph(segment)
+
+        recomposed_graph = build_graph(
+            recomposed_segment
+        )
+
+        random_graph = build_graph(
+            random_segment
+        )
+
+        return {
+
+            'piece_idx': idx,
+
+            'bar_start': start_bar,
+            'bar_end': end_bar,
+
+            'temperature': temperature,
+
+            'pianoroll': segment['pianoroll'],
+
+            'real_harmony_ids':
+                segment['harmony_ids'],
+
+            'recomposed_harmony_ids':
+                recomposed_segment['harmony_ids'],
+
+            'random_harmony_ids':
+                random_segment['harmony_ids'],
+
+            'real_graph':
+                real_graph,
+
+            'recomposed_graph':
+                recomposed_graph,
+
+            'random_graph':
+                random_graph,
+        }

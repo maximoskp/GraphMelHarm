@@ -17,30 +17,32 @@ tokenizer = CSGridMLMTokenizer(
 chord_features = GridMLM_tokenizers.CHORD_FEATURES
 chord_id_features = {tokenizer.vocab[k]: v for k, v in chord_features.items()}
 
-def append_chord_objects_to_dataset(ds):
+def append_bar_objects_to_dataset(ds):
     new_ds = []
     for i in range(len(ds)):
         print(f"Processing dataset item {i+1}/{len(ds)}", end='\r')
         d = ds[i]
-        chord_objects = make_chord_objects_for_dataset_item(d, tokenizer)
-        d['chord_objects'] = chord_objects
+        bar_objects = make_bar_objects_for_dataset_item(d, tokenizer)
+        d['bar_objects'] = bar_objects
         new_ds.append(d)
     return new_ds
-# end append_chord_objects_to_dataset
+# end append_bar_objects_to_dataset
 
-def make_chord_objects_for_dataset_item(d, tokenizer):
+def make_bar_objects_for_dataset_item(d, tokenizer):
     harmony_ids = d['harmony_ids']
     pianoroll = d['pianoroll']
     bars = bar_split(harmony_ids, pianoroll, tokenizer)
-    chord_objects = make_chord_objects(bars)
-    return chord_objects
-# end make_chord_objects_for_dataset_item
+    bar_objects = make_bar_objects(bars)
+    return bar_objects
+# end make_bar_objects_for_dataset_item
 
 def bar_split(harmony_ids, pianoroll, tokenizer):
     bars = []
     current_bar = {
         'chord_ids': [],
         'melody_pcs': [],
+        'chord_token_positions': [],
+        'bar_token_positions': []
     }
     for i, hid in enumerate(harmony_ids):
         if hid == tokenizer.vocab['<bar>']:
@@ -48,24 +50,32 @@ def bar_split(harmony_ids, pianoroll, tokenizer):
                 bars.append(current_bar)
             current_bar = {
                 'chord_ids': [],
-                'melody_pcs': []
+                'melody_pcs': [],
+                'chord_token_positions': [],
+                'bar_token_positions': []
             }
+            # current_bar['bar_token_positions'].append(i)
         else:
             current_bar['chord_ids'].append(hid)
             current_bar['melody_pcs'].append(np.where(pianoroll[i] > 0)[0])
+            current_bar['chord_token_positions'].append(i)
+            current_bar['bar_token_positions'].append(i)
     if current_bar:
         bars.append(current_bar)
     return bars
 # end bar_split
 
-def make_chord_objects(bars):
+def make_bar_objects(bars):
     bars_out = []
     for bar in bars:
         chord_objects = []
         chord_ids = bar['chord_ids']
         melody_pcs = bar['melody_pcs']
+        chord_token_positions = bar['chord_token_positions']
+        bar_token_positions = bar['bar_token_positions']
         tmp_positions = []
         tmp_melody_pcs = []
+        tmp_token_positions = []
         if len(chord_ids) > 0:
             for i in range(len(chord_ids)):
                 hid = chord_ids[i]
@@ -73,24 +83,43 @@ def make_chord_objects(bars):
                     if hid == chord_ids[i-1]:
                         tmp_positions.append(i)
                         tmp_melody_pcs.append(melody_pcs[i])
+                        tmp_token_positions.append(chord_token_positions[i])
                     else:
-                        chord_objects.append(Chord(chord_ids[i-1], tmp_positions, tmp_melody_pcs))
+                        chord_objects.append(Chord(chord_ids[i-1], tmp_positions, tmp_melody_pcs, tmp_token_positions))
                         tmp_positions = [i]
                         tmp_melody_pcs = [melody_pcs[i]]
+                        tmp_token_positions = [chord_token_positions[i]]
                 else:
                     tmp_positions.append(i)
                     tmp_melody_pcs.append(melody_pcs[i])
+                    tmp_token_positions.append(chord_token_positions[i])
             # end for
-            chord_objects.append(Chord(hid, tmp_positions, tmp_melody_pcs))
-        bars_out.append(chord_objects)
+            chord_objects.append(Chord(hid, tmp_positions, tmp_melody_pcs, tmp_token_positions))
+        bars_out.append(Bar(bar_token_positions, chord_objects))
     return bars_out
-# end make_chord_objects
+# end make_bar_objects
+
+class Bar:
+    def __init__(self, token_positions, chord_objects):
+        self.token_positions = token_positions
+        self.chord_objects = chord_objects
+    # end init
+
+    def print_info(self):
+        print(f"Bar token positions: {self.token_positions}")
+        print(f"Number of chord objects in bar: {len(self.chord_objects)}")
+        for i, chord in enumerate(self.chord_objects):
+            print(f"Chord object {i+1}:")
+            chord.print_info()
+    # end print_info
+# end class Bar
 
 class Chord:
-    def __init__(self, chord_id, bar_positions, melody_pcs):
+    def __init__(self, chord_id, bar_positions, melody_pcs, token_positions):
         self.chord_id = chord_id
         self.bar_positions = bar_positions
         self.melody_pcs = melody_pcs
+        self.token_positions = token_positions
         if self.chord_id in chord_id_features.keys():
             self.get_chord_pitch_features()
             self.get_chord_melody_features()
@@ -151,6 +180,7 @@ class Chord:
         print(f"Root: {self.root}")
         print(f"Chord ID: {self.chord_id}")
         print(f"Bar Positions: {self.bar_positions}")
+        print(f"Token Positions: {self.token_positions}")
         print(f"Melody PCs: {self.melody_pcs}")
         print(f"Graph Features:\n{self.graph_features}")
     # end print_info
@@ -159,19 +189,18 @@ class Chord:
 def get_random_bar_chords_from_data(d):
     # get a random range of bars - at most 4
     bars_range = np.random.randint(1, 5)
-    bar_end = np.random.randint(bars_range, len(d['chord_objects'])+1)
+    bar_end = np.random.randint(bars_range, len(d['bar_objects'])+1)
     bar_start = bar_end - bars_range
 
-    chord_objects = d['chord_objects'][bar_start:bar_end]
+    chord_objects = d['bar_objects'][bar_start:bar_end]
 
     data = HeteroData()
     # ============================================================
     # PITCH NODES
     # ============================================================
 
-    num_pitch_nodes = 12
-    # One-hot pitch identity
-    pitch_onehot = torch.eye(num_pitch_nodes)
+    # One-hot pitch class identity
+    pitch_onehot = torch.eye(12)
     data["pitch"].x = pitch_onehot
 
     # ============================================================
@@ -187,7 +216,7 @@ def get_random_bar_chords_from_data(d):
     temporal_edge_index_list = []
     temporal_edge_attr_list = []
     for i, bar in enumerate(chord_objects):
-        for j, chord in enumerate(bar):
+        for j, chord in enumerate(bar.chord_objects):
             event_features_list.append([chord.bar_positions[0]])
             temporal_edge_index_list.append(num_events)
             if num_events > 0:
