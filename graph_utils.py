@@ -17,24 +17,24 @@ tokenizer = CSGridMLMTokenizer(
 chord_features = GridMLM_tokenizers.CHORD_FEATURES
 chord_id_features = {tokenizer.vocab[k]: v for k, v in chord_features.items()}
 
-def append_bar_objects_to_dataset(ds):
+def append_graph_ready_object_to_dataset(ds):
     new_ds = []
     for i in range(len(ds)):
         print(f"Processing dataset item {i+1}/{len(ds)}", end='\r')
         d = ds[i]
-        bar_objects = make_bar_objects_for_dataset_item(d, tokenizer)
-        d['bar_objects'] = bar_objects
+        graph_ready_object = make_graph_ready_for_dataset_item(d, tokenizer)
+        d['graph_ready_object'] = graph_ready_object
         new_ds.append(d)
     return new_ds
-# end append_bar_objects_to_dataset
+# end append_graph_ready_object_to_dataset
 
-def make_bar_objects_for_dataset_item(d, tokenizer):
+def make_graph_ready_for_dataset_item(d, tokenizer):
     harmony_ids = d['harmony_ids']
     pianoroll = d['pianoroll']
     bars = bar_split(harmony_ids, pianoroll, tokenizer)
     bar_objects = make_bar_objects(bars)
-    return bar_objects
-# end make_bar_objects_for_dataset_item
+    return MelodicHarmonization(bar_objects)
+# end make_graph_ready_for_dataset_item
 
 def bar_split(harmony_ids, pianoroll, tokenizer):
     bars = []
@@ -186,13 +186,118 @@ class Chord:
     # end print_info
 # end class Chord
 
+class MelodicHarmonization:
+    def __init__(self, bar_objects):
+        self.bar_objects = bar_objects
+        self.num_bars = len(bar_objects)
+        self.segment_graph = None
+        self.segment_bar_start = None
+        self.segment_bar_end = None
+    # end init
+
+    def print_info(self, print_graph=True, print_bars=True):
+        print(f"Number of bars: {self.num_bars}")
+        if print_graph:
+            if self.segment_graph is not None:
+                print(f"Segment bar range: [{self.segment_bar_start}, {self.segment_bar_end})")
+                print("Segment graph features:")
+                print(self.segment_graph)
+                print("Segment graph bars:")
+                for i, bar in enumerate(self.bar_objects[self.segment_bar_start:self.segment_bar_end]):
+                    print(f"Bar {self.segment_bar_start + i + 1}:")
+                    bar.print_info()
+            else:
+                print("No segment graph created yet.")
+        if print_bars:
+            for i, bar in enumerate(self.bar_objects):
+                print(f"Bar {i+1}:")
+                bar.print_info()
+    # end print_info
+
+    def make_graph_of_segment(self, bar_start, bar_end):
+        # make a graph of the segment from bar_start to bar_end (exclusive)
+        # using the bar_objects
+        if bar_start < 0 or bar_end > self.num_bars or bar_start >= bar_end:
+            raise ValueError("Invalid bar range")
+        bar_objects = self.bar_objects[bar_start:bar_end]
+        self.segment_bar_start = bar_start
+        self.segment_bar_end = bar_end
+
+        data = HeteroData()
+        # ============================================================
+        # PITCH NODES
+        # ============================================================
+
+        # One-hot pitch class identity
+        pitch_onehot = torch.eye(12)
+        data["pitch"].x = pitch_onehot
+
+        # ============================================================
+        # EVENT NODES
+        # ============================================================
+        num_events = 0
+        # for computing delta_time, we only need the duration of the previous chord, 
+        # which is given by the number of time positions it occupies in the bar
+        previous_time_positions = 0
+        # abstract features of previous-to-current chord transition
+        # 1: yes
+        # 0: no
+        previous_root_retention = 0
+        current_root_retention = 0
+        same_root = 0
+        chromatic_root_motion = 0
+        common_pitch_class_ratio = 0
+        upward_semitone_resolution_to_root = 0
+        downward_semitone_resolution_to_root = 0
+        descending_fifth_root_motion = 0
+        event_features_list = []
+        edge_index_source_list = []
+        edge_index_target_list = []
+        edge_attr_list = []
+        temporal_edge_index_list = []
+        temporal_edge_attr_list = []
+        for i, bar in enumerate(bar_objects):
+            for j, chord in enumerate(bar.chord_objects):
+                event_features_list.append([chord.bar_positions[0]])
+                temporal_edge_index_list.append(num_events)
+                if num_events > 0:
+                    delta_time = previous_time_positions
+                    temporal_edge_attr_list.append([delta_time])
+                previous_time_positions = len(chord.bar_positions)
+                edge_attr_list.append(chord.graph_features)
+                for pc in chord.pitch_classes:
+                    edge_index_source_list.append(pc)
+                    edge_index_target_list.append(num_events)
+                num_events += 1
+        # event features
+        event_features = torch.tensor(event_features_list, dtype=torch.float)
+        data["event"].x = event_features
+        # participation index
+        edge_index = torch.tensor([edge_index_source_list, edge_index_target_list], dtype=torch.long)
+        data["pitch", "participates", "event"].edge_index = edge_index
+        # participation edge attributes
+        edge_attr = torch.cat(edge_attr_list, dim=0)
+        data["pitch", "participates", "event"].edge_attr = edge_attr
+        # temporal index
+        temporal_edge_index = torch.tensor([
+            temporal_edge_index_list[:-1],
+            temporal_edge_index_list[1:]
+        ], dtype=torch.long)
+        data["event", "next", "event"].edge_index = temporal_edge_index
+        # temporal edge attributes
+        temporal_edge_attr = torch.tensor(temporal_edge_attr_list, dtype=torch.float)
+        data["event", "next", "event"].edge_attr = temporal_edge_attr
+        self.segment_graph = data
+    # end make_graph_of_segment
+# end class MelodicHarmonization
+
 def get_random_bar_chords_from_data(d):
     # get a random range of bars - at most 4
     bars_range = np.random.randint(1, 5)
     bar_end = np.random.randint(bars_range, len(d['bar_objects'])+1)
     bar_start = bar_end - bars_range
 
-    chord_objects = d['bar_objects'][bar_start:bar_end]
+    bar_objects = d['bar_objects'][bar_start:bar_end]
 
     data = HeteroData()
     # ============================================================
@@ -215,7 +320,7 @@ def get_random_bar_chords_from_data(d):
     edge_attr_list = []
     temporal_edge_index_list = []
     temporal_edge_attr_list = []
-    for i, bar in enumerate(chord_objects):
+    for i, bar in enumerate(bar_objects):
         for j, chord in enumerate(bar.chord_objects):
             event_features_list.append([chord.bar_positions[0]])
             temporal_edge_index_list.append(num_events)
