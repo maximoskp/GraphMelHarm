@@ -181,7 +181,7 @@ class HarmonicGraphDataset(Dataset):
     # end init
 
     def sample_segment_bounds(self, piece):
-        num_bars = len(piece['chord_objects'])
+        num_bars = piece['graph_ready_object'].num_bars
         bars_range = np.random.randint(
             1,
             self.max_segment_bars + 1

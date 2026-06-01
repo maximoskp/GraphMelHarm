@@ -186,7 +186,7 @@ class HarmonicGraphEncoder(nn.Module):
 
         self.temporal_mpnn = TemporalMPNN(
             hidden_dim=hidden_dim,
-            edge_dim=1
+            edge_dim=7
         )
 
         # ----------------------------------------------------

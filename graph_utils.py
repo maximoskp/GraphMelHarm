@@ -236,38 +236,24 @@ class MelodicHarmonization:
         # EVENT NODES
         # ============================================================
         num_events = 0
-        # for computing delta_time, we only need the duration of the previous chord, 
-        # which is given by the number of time positions it occupies in the bar
-        previous_time_positions = 0
-        # abstract features of previous-to-current chord transition
-        # 1: yes
-        # 0: no
-        previous_root_retention = 0
-        current_root_retention = 0
-        same_root = 0
-        chromatic_root_motion = 0
-        common_pitch_class_ratio = 0
-        upward_semitone_resolution_to_root = 0
-        downward_semitone_resolution_to_root = 0
-        descending_fifth_root_motion = 0
         event_features_list = []
         edge_index_source_list = []
         edge_index_target_list = []
         edge_attr_list = []
         temporal_edge_index_list = []
         temporal_edge_attr_list = []
+        prev_chord = None
         for i, bar in enumerate(bar_objects):
             for j, chord in enumerate(bar.chord_objects):
                 event_features_list.append([chord.bar_positions[0]])
                 temporal_edge_index_list.append(num_events)
-                if num_events > 0:
-                    delta_time = previous_time_positions
-                    temporal_edge_attr_list.append([delta_time])
-                previous_time_positions = len(chord.bar_positions)
+                if prev_chord is not None:
+                    temporal_edge_attr_list.append(self.get_event_edge_attributes(prev_chord, chord))
                 edge_attr_list.append(chord.graph_features)
                 for pc in chord.pitch_classes:
                     edge_index_source_list.append(pc)
                     edge_index_target_list.append(num_events)
+                prev_chord = chord
                 num_events += 1
         # event features
         event_features = torch.tensor(event_features_list, dtype=torch.float)
@@ -289,6 +275,36 @@ class MelodicHarmonization:
         data["event", "next", "event"].edge_attr = temporal_edge_attr
         self.segment_graph = data
     # end make_graph_of_segment
+
+    def get_event_edge_attributes(self, prev_chord, current_chord):
+        # for computing delta_time, we only need the duration of the previous chord, 
+        # which is given by the number of time positions it occupies in the bar
+        previous_time_positions = len(prev_chord.bar_positions)
+        # abstract features of previous-to-current chord transition
+        # 1: yes
+        # 0: no
+        previous_root_retention = int(prev_chord.root in current_chord.pitch_classes)
+        current_root_retention = int(current_chord.root in prev_chord.pitch_classes)
+        same_root = int(prev_chord.root == current_chord.root)
+        chromatic_root_motion = int(current_chord.root in [(prev_chord.root + i) % 12 for i in [1,11]])
+        pc_prev_set = set(prev_chord.pitch_classes)
+        pc_current_set = set(current_chord.pitch_classes)
+        common_pitch_classes = pc_prev_set.intersection(pc_current_set)
+        common_pitch_class_ratio = len(common_pitch_classes) / max(len(pc_prev_set.union(pc_current_set)), 1)
+        upward_semitone_resolution_to_root = int((current_chord.root + 11) % 12 in prev_chord.pitch_classes)
+        downward_semitone_resolution_to_root = int((current_chord.root + 1) % 12 in prev_chord.pitch_classes)
+        descending_fifth_root_motion = int((current_chord.root + 7) % 12 in prev_chord.pitch_classes)
+        # Return the computed attributes as a tensor
+        return [
+            previous_time_positions,
+            previous_root_retention,
+            current_root_retention,
+            common_pitch_class_ratio,
+            upward_semitone_resolution_to_root,
+            downward_semitone_resolution_to_root,
+            descending_fifth_root_motion
+        ]
+    # end get_event_edge_attributes
 # end class MelodicHarmonization
 
 def get_random_bar_chords_from_data(d):
