@@ -76,12 +76,11 @@ def main():
 
     loss_fn=CrossEntropyLoss(ignore_index=-100)
 
-    # Guidance dim is equal to d_model in this case.
     d_model = 512
-
+    guidance_dim = 128
     model = AttnFiLMSEModel(
         chord_vocab_size=len(tokenizer.vocab),
-        guidance_dim=128,
+        guidance_dim=guidance_dim,
         d_model=d_model,
         nhead=8,
         num_layers=8,

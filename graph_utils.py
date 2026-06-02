@@ -190,6 +190,9 @@ class MelodicHarmonization:
     def __init__(self, bar_objects):
         self.bar_objects = bar_objects
         self.num_bars = len(bar_objects)
+        self.segment_bar_end = None
+        self.segment_bar_start = None
+        self.segment_bar_end = None
         self.segment_graph = None
         self.segment_bar_start = None
         self.segment_bar_end = None
@@ -203,7 +206,7 @@ class MelodicHarmonization:
                 print("Segment graph features:")
                 print(self.segment_graph)
                 print("Segment graph bars:")
-                for i, bar in enumerate(self.bar_objects[self.segment_bar_start:self.segment_bar_end]):
+                for i, bar in enumerate(self.segment_bar_objects):
                     print(f"Bar {self.segment_bar_start + i + 1}:")
                     bar.print_info()
             else:
@@ -214,12 +217,29 @@ class MelodicHarmonization:
                 bar.print_info()
     # end print_info
 
+    def get_valid_bar_segment_range(self, max_length=4):
+        # get a random valid bar segment range of at most max_length bars
+        bars_range = np.random.randint(1, max_length+1)
+        bar_end = np.random.randint(bars_range, self.num_bars+1)
+        bar_start = bar_end - bars_range
+        return bar_start, bar_end
+    # end get_valid_bar_segment_range
+
+    def get_token_positions_of_bar_segment(self):
+        if self.segment_bar_objects is None:
+            raise ValueError("No segment graph created yet.")
+        token_positions = []
+        for bar in self.segment_bar_objects:
+            token_positions.extend(bar.token_positions)
+        return token_positions
+    # end get_token_positions_of_bar_segment
+
     def make_graph_of_segment(self, bar_start, bar_end):
         # make a graph of the segment from bar_start to bar_end (exclusive)
         # using the bar_objects
         if bar_start < 0 or bar_end > self.num_bars or bar_start >= bar_end:
             raise ValueError("Invalid bar range")
-        bar_objects = self.bar_objects[bar_start:bar_end]
+        self.segment_bar_objects = self.bar_objects[bar_start:bar_end]
         self.segment_bar_start = bar_start
         self.segment_bar_end = bar_end
 
@@ -243,7 +263,7 @@ class MelodicHarmonization:
         temporal_edge_index_list = []
         temporal_edge_attr_list = []
         prev_chord = None
-        for i, bar in enumerate(bar_objects):
+        for i, bar in enumerate(self.segment_bar_objects):
             for j, chord in enumerate(bar.chord_objects):
                 event_features_list.append([chord.bar_positions[0]])
                 temporal_edge_index_list.append(num_events)
