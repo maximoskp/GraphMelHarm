@@ -313,7 +313,7 @@ class MelodicHarmonization:
         common_pitch_class_ratio = len(common_pitch_classes) / max(len(pc_prev_set.union(pc_current_set)), 1)
         upward_semitone_resolution_to_root = int((current_chord.root + 11) % 12 in prev_chord.pitch_classes)
         downward_semitone_resolution_to_root = int((current_chord.root + 1) % 12 in prev_chord.pitch_classes)
-        descending_fifth_root_motion = int((current_chord.root + 7) % 12 in prev_chord.pitch_classes)
+        descending_fifth_root_motion = int((current_chord.root + 7) % 12 == prev_chord.root)
         # Return the computed attributes as a tensor
         return [
             previous_time_positions,

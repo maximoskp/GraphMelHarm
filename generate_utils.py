@@ -236,7 +236,6 @@ def nucleus_token_by_token_generate(
     ):
     device = melody_grid.device
     seq_len = melody_grid.shape[1]
-    hidden = None
 
     # --- 1. Initialize ---
     visible_harmony = torch.full((1, seq_len), mask_token_id, dtype=torch.long, device=device)
@@ -321,7 +320,7 @@ def nucleus_token_by_token_generate(
         visible_harmony[0, pos] = token
         step += 1
     
-    return visible_harmony, hidden
+    return visible_harmony
 # end nucleus_token_by_token_generate
 
 def generate_files_with_nucleus(
