@@ -143,7 +143,7 @@ class HarmonicGraphEncoder(nn.Module):
 
         super().__init__()
 
-        # self.register_buffer("pitch_ids", torch.arange(12))
+        self.register_buffer("pitch_ids", torch.arange(12))
         self.output_dim = output_dim
 
         # ----------------------------------------------------
@@ -205,7 +205,8 @@ class HarmonicGraphEncoder(nn.Module):
         # PITCH FEATURES
         # ====================================================
 
-        pitch_ids = torch.arange(12)
+        pitch_ids = self.pitch_ids
+        # pitch_ids = torch.arange(12)
 
         embedded_pitch = self.pitch_embedding(
             pitch_ids

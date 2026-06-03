@@ -209,7 +209,6 @@ def load_AttnFiLMSEModel(
         num_layers=8,
         grid_length=80,
         pianoroll_dim=tokenizer.pianoroll_dim,
-        guidance_dim=d_model,
         device=device,
     )
     if checkpoint_path is not None:
@@ -260,17 +259,16 @@ def nucleus_token_by_token_generate(
     
     while (visible_harmony == mask_token_id).any():
         with torch.no_grad():
-            logits, hidden = model(
+            logits = model(
                 melody_grid=melody_grid.to(model.device),
                 harmony_tokens=visible_harmony.to(model.device),
                 z_g=guidance_embedding,
-                return_hidden=True
             )  # (1, seq_len, vocab_size)
         # --- Masked position selection ---
         masked_positions = (visible_harmony == mask_token_id).squeeze(0).nonzero(as_tuple=True)[0]
         if masked_positions.numel() == 0:
             break
-
+        masked_positions = masked_positions.to(model.device)
         probs = torch.softmax(logits[0, masked_positions] / temperature, dim=-1)
         entropies = -(probs * probs.clamp_min(1e-9).log()).sum(dim=-1)
 
