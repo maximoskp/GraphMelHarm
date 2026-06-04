@@ -13,47 +13,6 @@ from collections import Counter
 from generate_utils import nucleus_token_by_token_generate
 from graph_utils import make_graph_ready_for_dataset_item
 
-def compute_normalized_token_entropy(logits, target_ids, pad_token_id=None):
-    """
-    Computes Expected Bits per Token (Token Entropy) for a batch.
-    
-    Args:
-        logits (torch.Tensor): Model logits of shape (batch_size, seq_len, vocab_size).
-        target_ids (torch.Tensor): Target token IDs of shape (batch_size, seq_len).
-        pad_token_id (int, optional): Token ID for padding. If provided, masked out in computation.
-        
-    Returns:
-        entropy_per_token (torch.Tensor): Average entropy per token for each sequence.
-        entropy_per_batch (float): Average entropy per token across the batch.
-    """
-    # Infer vocabulary size from logits shape
-    vocab_size = logits.shape[-1]
-    # Compute max possible entropy for normalization
-    max_entropy = torch.log2(torch.tensor(vocab_size, dtype=torch.float32)).item()
-
-    # Compute probabilities with softmax
-    probs = F.softmax(logits, dim=-1)  # Shape: (batch_size, seq_len, vocab_size)
-    
-    # Compute log probabilities (base 2)
-    log_probs = torch.log2(probs + 1e-9)  # Avoid log(0) errors
-
-    # Compute entropy: H(x) = - sum(P(x) * log2(P(x)))
-    entropy = -torch.sum(probs * log_probs, dim=-1)  # Shape: (batch_size, seq_len)
-
-    # Mask out padding tokens if provided
-    if pad_token_id is not None:
-        mask = (target_ids != pad_token_id).float()  # 1 for valid tokens, 0 for padding
-        entropy = entropy * mask  # Zero out entropy for padding
-        entropy_per_token = entropy.sum(dim=-1) / mask.sum(dim=-1).clamp(min=1)  # Normalize per valid token
-    else:
-        entropy_per_token = entropy.mean(dim=-1)  # Average over sequence length
-
-    # Compute overall batch entropy
-    entropy_per_batch = entropy_per_token.mean().item()
-
-    return entropy_per_token/max_entropy, entropy_per_batch/max_entropy
-# end compute_token_entropy
-
 class CSGridMLMDataset(Dataset):
     def __init__(
         self,
@@ -187,6 +146,10 @@ class HarmonicGraphDataset(Dataset):
         self.max_segment_bars = max_segment_bars
     # end init
 
+    def __len__(self):
+        return len(self.data)
+    # end len
+
     def __getitem__(self, idx):
         d = self.data[idx]
         bar_start, bar_end = d['graph_ready_object'].get_valid_bar_segment_range(self.max_segment_bars)
@@ -252,20 +215,15 @@ class HarmonicGraphDataset(Dataset):
             'bar_start': bar_start,
             'bar_end': bar_end,
 
-            'temperature': temperature,
-
+            # 'temperature': temperature,
             'pianoroll': d['pianoroll'],
 
             'real_harmony_ids': d['harmony_ids'],
-
             'recomposed_harmony_ids': d_recomposed['harmony_ids'],
-
             'random_harmony_ids': d_random['harmony_ids'],
 
             'real_graph': real_graph,
-
             'recomposed_graph': recomposed_graph,
-
             'random_graph': random_graph,
         }
     # end getitem
@@ -312,34 +270,23 @@ def harmonic_graph_collate_fn(batch):
         for item in batch
     ])
 
-    temperatures = torch.tensor([
-        item['temperature']
-        for item in batch
-    ])
+    # temperatures = torch.tensor([
+    #     item['temperature']
+    #     for item in batch
+    # ])
 
     return {
 
         'pianoroll': pianorolls,
 
-        'real_harmony_ids':
-            real_harmony_ids,
+        'real_harmony_ids': real_harmony_ids,
+        'recomposed_harmony_ids': recomposed_harmony_ids,
+        'random_harmony_ids': random_harmony_ids,
 
-        'recomposed_harmony_ids':
-            recomposed_harmony_ids,
+        'real_graph': real_graphs,
+        'recomposed_graph': recomposed_graphs,
+        'random_graph': random_graphs,
 
-        'random_harmony_ids':
-            random_harmony_ids,
-
-        'real_graph':
-            real_graphs,
-
-        'recomposed_graph':
-            recomposed_graphs,
-
-        'random_graph':
-            random_graphs,
-
-        'temperature':
-            temperatures
+        # 'temperature': temperatures
     }
 # end harmonic_graph_collate_fn
