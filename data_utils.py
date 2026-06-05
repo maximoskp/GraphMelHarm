@@ -151,8 +151,10 @@ class HarmonicGraphDataset(Dataset):
     # end len
 
     def __getitem__(self, idx):
+        print('idx:', idx)
         d = self.data[idx]
         bar_start, bar_end = d['graph_ready_object'].get_valid_bar_segment_range(self.max_segment_bars)
+        print('bar_start:', bar_start, 'bar_end:', bar_end)
 
         # ==========================================
         # Extract canonical segment
@@ -162,6 +164,8 @@ class HarmonicGraphDataset(Dataset):
 
         # get token positions for recomposition and randomization
         token_positions = d['graph_ready_object'].get_token_positions_of_bar_segment()
+        mask_token_positions = np.zeros(len(d['harmony_ids']), dtype=bool)
+        mask_token_positions[token_positions] = True
         # mask the tokens in the segment
         masked_tokens = np.array(d['harmony_ids'])
         masked_tokens[token_positions] = self.tokenizer.mask_token_id
@@ -215,7 +219,7 @@ class HarmonicGraphDataset(Dataset):
             'bar_start': bar_start,
             'bar_end': bar_end,
 
-            # 'temperature': temperature,
+            'mask_token_positions': mask_token_positions.tolist(),
             'pianoroll': d['pianoroll'],
 
             'real_harmony_ids': d['harmony_ids'],
@@ -270,10 +274,10 @@ def harmonic_graph_collate_fn(batch):
         for item in batch
     ])
 
-    # temperatures = torch.tensor([
-    #     item['temperature']
-    #     for item in batch
-    # ])
+    mask_token_positions = torch.stack([
+        torch.tensor(item['mask_token_positions'], dtype=torch.bool)
+        for item in batch
+    ])
 
     return {
 
@@ -287,6 +291,6 @@ def harmonic_graph_collate_fn(batch):
         'recomposed_graph': recomposed_graphs,
         'random_graph': random_graphs,
 
-        # 'temperature': temperatures
+        'mask_token_positions': mask_token_positions
     }
 # end harmonic_graph_collate_fn
