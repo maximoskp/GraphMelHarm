@@ -996,6 +996,7 @@ def validation_IPLG_loop(
                             val_accuracy, saving_version] )
     return best_val_loss, saving_version
 # end validation_lacta_loop
+
 def train_IPLG(
         transformer_model, 
         latent_loss_fn, logits_loss_fn,
