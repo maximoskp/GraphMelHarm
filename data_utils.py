@@ -151,10 +151,8 @@ class HarmonicGraphDataset(Dataset):
     # end len
 
     def __getitem__(self, idx):
-        print('idx:', idx)
         d = self.data[idx]
         bar_start, bar_end = d['graph_ready_object'].get_valid_bar_segment_range(self.max_segment_bars)
-        print('bar_start:', bar_start, 'bar_end:', bar_end)
 
         # ==========================================
         # Extract canonical segment

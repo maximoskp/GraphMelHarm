@@ -54,7 +54,7 @@ class ParticipationMPNN(MessagePassing):
                 x_j,
                 x_i,
                 edge_attr):
-
+        
         z = torch.cat([
             x_j,
             x_i,
@@ -115,12 +115,12 @@ class TemporalMPNN(MessagePassing):
             edge_attr=edge_attr
         )
     # end forward
-
+    
     def message(self,
                 x_i,
                 x_j,
                 edge_attr):
-
+        
         z = torch.cat([
             x_i,
             x_j,
@@ -156,7 +156,7 @@ class HarmonicGraphEncoder(nn.Module):
         )
 
         self.pitch_proj = nn.Linear(
-            12 + hidden_dim,
+            hidden_dim,
             hidden_dim
         )
 
@@ -205,19 +205,24 @@ class HarmonicGraphEncoder(nn.Module):
         # PITCH FEATURES
         # ====================================================
 
-        pitch_ids = self.pitch_ids
+        # pitch_ids = self.pitch_ids
         # pitch_ids = torch.arange(12)
+        data = data.to(self.pitch_ids.device)
+        pitch_onehot = data["pitch"].x                      # (N, 12)
+        pitch_classes = pitch_onehot.argmax(dim=-1)         # (N,)
+        embedded_pitch = self.pitch_embedding(pitch_classes)  # (N, hidden_dim)
+        # pitch_x = torch.cat([pitch_onehot.to(embedded_pitch.device), embedded_pitch], dim=-1)
+        # pitch_x = self.pitch_proj(pitch_x)
+        pitch_x = self.pitch_proj(embedded_pitch)
 
-        embedded_pitch = self.pitch_embedding(
-            pitch_ids
-        )
 
-        pitch_x = torch.cat([
-            data["pitch"].x,
-            embedded_pitch
-        ], dim=-1)
+        # embedded_pitch = self.pitch_embedding(
+        #     self.pitch_ids
+        # )
 
-        pitch_x = self.pitch_proj(pitch_x)
+        # pitch_x = embedded_pitch
+
+        # pitch_x = self.pitch_proj(pitch_x)
 
         # ====================================================
         # EVENT FEATURES
@@ -252,7 +257,11 @@ class HarmonicGraphEncoder(nn.Module):
         # GRAPH POOLING
         # ====================================================
 
-        graph_embedding = event_x.mean(dim=0)
+        # support batched HeteroData: pool per-graph if `batch` is present
+        if hasattr(data["event"], "batch"):
+            graph_embedding = global_mean_pool(event_x, data["event"].batch)
+        else:
+            graph_embedding = event_x.mean(dim=0)
 
         # ====================================================
         # LATENT VECTOR

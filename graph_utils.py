@@ -120,6 +120,8 @@ class Chord:
         self.bar_positions = bar_positions
         self.melody_pcs = melody_pcs
         self.token_positions = token_positions
+        self.pitch_classes = []
+        self.root = None
         if self.chord_id in chord_id_features.keys():
             self.get_chord_pitch_features()
             self.get_chord_melody_features()
