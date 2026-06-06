@@ -322,19 +322,23 @@ class AttnFiLMSEModel(nn.Module):
         # positional encoding
         # -----------------------------------------------------
 
-        self.shared_pos = sinusoidal_positional_encoding(
+        shared_pos = sinusoidal_positional_encoding(
             grid_length,
             d_model,
             device
         )
 
-        self.full_pos = torch.cat(
+        full_pos = torch.cat(
             [
-                self.shared_pos[:, :grid_length],
-                self.shared_pos[:, :grid_length]
+                shared_pos[:, :grid_length],
+                shared_pos[:, :grid_length]
             ],
             dim=1
         )
+
+        # register as buffers so they move with .to(device)
+        self.register_buffer('shared_pos', shared_pos)
+        self.register_buffer('full_pos', full_pos)
 
         # -----------------------------------------------------
         # transformer blocks
@@ -374,6 +378,14 @@ class AttnFiLMSEModel(nn.Module):
     ):
         B = melody_grid.size(0)
 
+        # ensure inputs and any created tensors live on the model's device
+        device = next(self.parameters()).device
+        melody_grid = melody_grid.to(device)
+        if harmony_tokens is not None:
+            harmony_tokens = harmony_tokens.to(device)
+        if attn_mask is not None:
+            attn_mask = attn_mask.to(device)
+
         # -----------------------------------------------------
         # melody
         # -----------------------------------------------------
@@ -396,7 +408,7 @@ class AttnFiLMSEModel(nn.Module):
                 B,
                 self.grid_length,
                 self.d_model,
-                device=self.device
+                device=device
             )
 
         # -----------------------------------------------------

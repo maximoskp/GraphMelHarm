@@ -99,26 +99,26 @@ def main():
     )
     transformer_model.to(device)
 
-    train_dataset_hook = HarmonicGraphDataset(train_d_hook, tokenizer, transformer_model)
-    val_dataset_hook = HarmonicGraphDataset(val_d_hook, tokenizer, transformer_model)
+    # train_dataset_hook = HarmonicGraphDataset(train_d_hook, tokenizer, transformer_model)
+    # val_dataset_hook = HarmonicGraphDataset(val_d_hook, tokenizer, transformer_model)
     train_dataset_gjt = HarmonicGraphDataset(train_d_gjt, tokenizer, transformer_model)
     val_dataset_gjt = HarmonicGraphDataset(val_d_gjt, tokenizer, transformer_model)
     train_dataset_nottingham = HarmonicGraphDataset(train_d_nottingham, tokenizer, transformer_model)
     val_dataset_nottingham = HarmonicGraphDataset(val_d_nottingham, tokenizer, transformer_model)
-    train_dataset_wikifonia = HarmonicGraphDataset(train_d_wikifonia, tokenizer, transformer_model)
-    val_dataset_wikifonia = HarmonicGraphDataset(val_d_wikifonia, tokenizer, transformer_model)
+    # train_dataset_wikifonia = HarmonicGraphDataset(train_d_wikifonia, tokenizer, transformer_model)
+    # val_dataset_wikifonia = HarmonicGraphDataset(val_d_wikifonia, tokenizer, transformer_model)
 
     train_dataset = ConcatDataset([
-        train_dataset_hook,
+        # train_dataset_hook,
         train_dataset_gjt,
         train_dataset_nottingham,
-        train_dataset_wikifonia
+        # train_dataset_wikifonia
     ])
     val_dataset = ConcatDataset([
-        val_dataset_hook,
+        # val_dataset_hook,
         val_dataset_gjt,
         val_dataset_nottingham,
-        val_dataset_wikifonia
+        # val_dataset_wikifonia
     ])
     
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=harmonic_graph_collate_fn)
