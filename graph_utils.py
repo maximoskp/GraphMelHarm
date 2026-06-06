@@ -4,6 +4,7 @@ import numpy as np
 from copy import deepcopy
 import torch
 from torch_geometric.data import HeteroData
+from tqdm import tqdm
 
 tokenizer = CSGridMLMTokenizer(
     fixed_length=80,
@@ -19,8 +20,8 @@ chord_id_features = {tokenizer.vocab[k]: v for k, v in chord_features.items()}
 
 def append_graph_ready_object_to_dataset(ds):
     new_ds = []
-    for i in range(len(ds)):
-        print(f"Processing dataset item {i+1}/{len(ds)}", end='\r')
+    for i in tqdm(range(len(ds))):
+        # print(f"Processing dataset item {i+1}/{len(ds)}", end='\r')
         d = ds[i]
         graph_ready_object = make_graph_ready_for_dataset_item(d, tokenizer)
         d['graph_ready_object'] = graph_ready_object

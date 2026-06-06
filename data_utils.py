@@ -215,6 +215,8 @@ class HarmonicGraphDataset(Dataset):
                 found_segment = True
             except:
                 print(f'retrying segment for idx {idx}: bar_start: {bar_start} - bar_end: {bar_end}')
+                idx = (idx + 1)%len(self.data)
+                d = self.data[idx]
 
         return {
 

@@ -882,118 +882,145 @@ def make_mixed_batch(batch, source_key):
 # end make_mixed_batch
 
 def validation_graph_loop(
-        transformer_model,
+        transformer_model, graph_model,
         valloader,
         mask_token_id, bar_token_id,
-        num_visible,
-        latent_loss_fn, logits_loss_fn,
+        logits_loss_fn,
         epoch,
         step,
-        train_loss, train_logits_loss, train_accuracy,
-        train_home_loss, train_foreign_loss,
-        best_val_loss, saving_version, loss_scheme,
-        results_path=None, transformer_path=None, tqdm_position=0
+        total_train_loss,
+        real_train_loss,
+        recomposed_train_loss,
+        random_train_loss,
+        real_accuracy,
+        recomposed_accuracy,
+        random_accuracy,
+        best_val_loss, saving_version,
+        results_path=None, transformer_path=None, 
+        graph_model_path=None, tqdm_position=0
     ):
     device = transformer_model.device
     transformer_model.eval()
+    graph_model.eval()
     with torch.no_grad():
-        running_loss = 0
-        val_loss = 0
-        running_accuracy = 0
-        val_accuracy = 0
+        running_total_loss = 0
+        total_val_loss = 0
+        running_real_loss = 0
+        real_val_loss = 0
+        running_recomposed_loss = 0
+        recomposed_val_loss = 0
+        running_random_loss = 0
+        random_val_loss = 0
 
-        val_foreign_loss = 0
-        val_home_loss = 0
-        running_foreign_loss = 0
-        running_home_loss = 0
+        real_val_accuracy = 0
+        running_real_accuracy = 0
+        recomposed_val_accuracy = 0
+        running_recomposed_accuracy = 0
+        random_val_accuracy = 0
+        running_random_accuracy = 0
 
-        val_logits_loss = 0
-        running_logits_loss = 0
         batch_num = 0
         print('validation')
         with tqdm(valloader, unit='batch', position=tqdm_position) as tepoch:
             tepoch.set_description(f'Epoch {epoch}@{step}| val')
             for batch in tepoch:
-                melody_grid = batch["pianoroll"].to(device)
-                harmony_gt = batch["harmony_ids"].to(device)
-                home_guidance_embeddings = batch["latent"].to(device)
-                mixed_batch = make_mixed_batch(batch, "latent")
-                foreign_guidance_embeddings = mixed_batch["latent"].to(device)
+                real_guide_z = graph_model(batch['real_graph'].to(device))
+                real_constraints = batch['real_harmony_ids'].clone()
+                real_constraints[batch['mask_token_positions']] = mask_token_id
 
-                harmony_input, harmony_target = full_to_partial_masking(
-                    harmony_gt,
-                    mask_token_id,
-                    num_visible,
-                    bar_token_id=bar_token_id
+                recomposed_guide_z = graph_model(batch['recomposed_graph'].to(device))
+                recomposed_constraints = batch['recomposed_harmony_ids'].clone()
+                recomposed_constraints[batch['mask_token_positions']] = mask_token_id
+
+                random_guide_z = graph_model(batch['random_graph'].to(device))
+                random_constraints = batch['real_harmony_ids'].clone()
+                random_constraints[batch['mask_token_positions']] = mask_token_id
+
+                real_logits = transformer_model(
+                    batch['pianoroll'].to(device),
+                    real_constraints.to(device),
+                    real_guide_z.to(device)
                 )
 
-                # Step 1: foreign latent attraction validation
-                logits, hidden = transformer_model(
-                    melody_grid.to(device),
-                    harmony_input.to(device),
-                    foreign_guidance_embeddings.to(device),
-                    return_hidden=True
+                recomposed_logits = transformer_model(
+                    batch['pianoroll'].to(device),
+                    recomposed_constraints.to(device),
+                    recomposed_guide_z.to(device)
                 )
-                foreign_guidance_loss = latent_loss_fn(foreign_guidance_embeddings.to(device), hidden.to(device))
 
-                # Step 2: home latent attraction validation
-                logits, hidden = transformer_model(
-                    melody_grid.to(device),
-                    harmony_input.to(device),
-                    home_guidance_embeddings.to(device),
-                    return_hidden=True
+                random_logits = transformer_model(
+                    batch['pianoroll'].to(device),
+                    random_constraints.to(device),
+                    random_guide_z.to(device)
                 )
-                home_guidance_loss = latent_loss_fn(home_guidance_embeddings.to(device), hidden.to(device))
-                logits_loss = logits_loss_fn(logits.view(-1, logits.size(-1)), harmony_target.view(-1))
 
-                # loss = foreign_guidance_loss + home_guidance_loss + logits_loss
-                loss = ('f' in loss_scheme)*foreign_guidance_loss + \
-                    ('h' in loss_scheme)*home_guidance_loss + \
-                    ('l' in loss_scheme)*logits_loss
+                real_logits_loss = logits_loss_fn(
+                    real_logits.view(-1, real_logits.size(-1)),
+                    batch['real_harmony_ids'].view(-1)
+                )
+                recomposed_logits_loss = logits_loss_fn(
+                    recomposed_logits.view(-1, recomposed_logits.size(-1)),
+                    batch['recomposed_harmony_ids'].view(-1)
+                )
+                random_logits_loss = logits_loss_fn(
+                    random_logits.view(-1, random_logits.size(-1)),
+                    batch['random_harmony_ids'].view(-1)
+                )
+
+                loss = real_logits_loss + recomposed_logits_loss + random_logits_loss
 
                 # update loss and accuracy
+                # loss
                 batch_num += 1
-                running_loss += loss.item()
-                val_loss = running_loss/batch_num
+                running_total_loss += loss.item()
+                total_val_loss = running_total_loss/batch_num
+                running_real_loss += real_logits_loss.item()
+                real_val_loss = running_real_loss/batch_num
+                running_recomposed_loss += recomposed_logits_loss.item()
+                recomposed_val_loss = running_recomposed_loss/batch_num
+                running_random_loss += random_logits_loss.item()
+                random_val_loss = running_random_loss/batch_num
+
                 # accuracy
-                predictions = logits.argmax(dim=-1)
+                real_predictions = real_logits.argmax(dim=-1)
+                recomposed_predictions = recomposed_logits.argmax(dim=-1)
+                random_predictions = random_logits.argmax(dim=-1)
                 # mask = torch.logical_and(harmony_target != harmony_input, harmony_target != -100)
-                mask = harmony_target != -100
-                running_accuracy += (predictions[mask] == harmony_target[mask]).sum().item()/mask.sum().item()
-                val_accuracy = running_accuracy/batch_num
-                
-                # partial losses
-                running_foreign_loss += foreign_guidance_loss.item()
-                val_foreign_loss = running_foreign_loss/batch_num
-                running_home_loss += home_guidance_loss.item()
-                val_home_loss = running_home_loss/batch_num
-                running_logits_loss += logits_loss.item()
-                val_logits_loss = running_logits_loss/batch_num
+                mask = batch['real_harmony_ids'] != -100
+                running_real_accuracy += (real_predictions[mask] == batch['real_harmony_ids'][mask]).sum().item()/max(1,mask.sum().item())
+                real_val_accuracy = running_real_accuracy/batch_num
+                running_recomposed_accuracy += (recomposed_predictions[mask] == batch['recomposed_harmony_ids'][mask]).sum().item()/max(1,mask.sum().item())
+                recomposed_val_accuracy = running_recomposed_accuracy/batch_num
+                running_random_accuracy += (random_predictions[mask] == batch['random_harmony_ids'][mask]).sum().item()/max(1,mask.sum().item())
+                random_val_accuracy = running_random_accuracy/batch_num
 
                 tepoch.set_postfix(
-                    loss=val_loss,
-                    floss=val_foreign_loss,
-                    hloss=val_home_loss,
-                    acc=val_accuracy
+                    loss=total_val_loss,
+                    acc_real=real_val_accuracy,
+                    acc_rec=recomposed_val_accuracy,
+                    acc_rnd=random_val_accuracy
                 )
             # end for batch
         # end with tqdm
     # end with no grad
     if transformer_path is not None:
-        if  best_val_loss > val_loss:
+        if  best_val_loss > total_val_loss:
             print('saving!')
             saving_version += 1
-            best_val_loss = val_loss
+            best_val_loss = total_val_loss
             torch.save(transformer_model.state_dict(), transformer_path)
-    print(f'validation: accuracy={val_accuracy}, loss={val_loss}, floss={val_foreign_loss}, hloss={val_home_loss}')
+            torch.save(graph_model.state_dict(), graph_model_path)
+    print(f'validation: loss={total_val_loss}, acc_real={real_val_accuracy}, acc_rec={recomposed_val_accuracy}, acc_rnd={random_val_accuracy}')
     print('results_path: ', results_path)
     if results_path is not None:
         with open( results_path, 'a' ) as f:
             writer = csv.writer(f)
-            writer.writerow( [epoch, step, train_loss, train_logits_loss, train_foreign_loss, \
-                            train_home_loss, train_accuracy, \
-                            val_loss, val_logits_loss, val_foreign_loss, val_home_loss, \
-                            val_accuracy, saving_version] )
+            writer.writerow( [epoch, step, \
+                        total_train_loss, real_train_loss, recomposed_train_loss,  random_train_loss, \
+                        real_accuracy, recomposed_accuracy, random_accuracy, \
+                        total_val_loss, real_val_loss, recomposed_val_loss,  random_val_loss, \
+                        real_val_accuracy, recomposed_val_accuracy, random_val_accuracy, \
+                        saving_version] )
     return best_val_loss, saving_version
 # end validation_graph_loop
 
@@ -1018,8 +1045,8 @@ def train_graph_loop(
     print('results_path:', results_path)
     if results_path is not None:
         result_fields = ['epoch', 'step', \
-                        'total_train_loss', 'real_loss', 'recomposed_loss',  'random_loss', \
-                        'real_acc', 'recomposed_acc', 'random_acc', \
+                        'total_train_loss', 'real_train_loss', 'recomposed_train_loss',  'random_train_loss', \
+                        'real_train_acc', 'recomposed_train_acc', 'random_train_acc', \
                         'total_val_loss', 'real_val_loss', 'recomposed_val_loss',  'random_val_loss', \
                         'real_val_acc', 'recomposed_val_acc', 'random_val_acc', \
                         'sav_version']
@@ -1057,6 +1084,7 @@ def train_graph_loop(
             tepoch.set_description(f'Epoch {epoch} | trn')
             for batch in tepoch:
                 transformer_model.train()
+                graph_model.train()
                 if freeze_base:
                     transformer_model.freeze_base()
                 
@@ -1143,24 +1171,23 @@ def train_graph_loop(
                 step += 1
                 if step%(total_steps//(epochs*validations_per_epoch)) == 0 or step == total_steps:
                     best_val_loss, saving_version = validation_graph_loop(
-                        transformer_model,
+                        transformer_model, graph_model,
                         valloader,
-                        mask_token_id,
-                        bar_token_id,
-                        num_visible,
-                        latent_loss_fn, logits_loss_fn,
+                        mask_token_id, bar_token_id,
+                        logits_loss_fn,
                         epoch,
                         step,
-                        train_loss,
-                        train_logits_loss,
-                        train_accuracy,
-                        train_home_loss,
-                        train_foreign_loss,
-                        best_val_loss,
-                        saving_version,
-                        loss_scheme,
+                        total_train_loss,
+                        real_train_loss,
+                        recomposed_train_loss,
+                        random_train_loss,
+                        real_accuracy,
+                        recomposed_accuracy,
+                        random_accuracy,
+                        best_val_loss, saving_version,
                         results_path=results_path,
                         transformer_path=transformer_path,
+                        graph_model_path=graph_model_path,
                         tqdm_position=tqdm_position
                     )
             # end for batch
