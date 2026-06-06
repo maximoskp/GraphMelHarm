@@ -307,15 +307,21 @@ class MelodicHarmonization:
         # 0: no
         previous_root_retention = int(prev_chord.root in current_chord.pitch_classes)
         current_root_retention = int(current_chord.root in prev_chord.pitch_classes)
-        same_root = int(prev_chord.root == current_chord.root)
-        chromatic_root_motion = int(current_chord.root in [(prev_chord.root + i) % 12 for i in [1,11]])
+        # same_root = int(prev_chord.root == current_chord.root)
+        # chromatic_root_motion = int(current_chord.root in [(prev_chord.root + i) % 12 for i in [1,11]])
         pc_prev_set = set(prev_chord.pitch_classes)
         pc_current_set = set(current_chord.pitch_classes)
         common_pitch_classes = pc_prev_set.intersection(pc_current_set)
         common_pitch_class_ratio = len(common_pitch_classes) / max(len(pc_prev_set.union(pc_current_set)), 1)
-        upward_semitone_resolution_to_root = int((current_chord.root + 11) % 12 in prev_chord.pitch_classes)
-        downward_semitone_resolution_to_root = int((current_chord.root + 1) % 12 in prev_chord.pitch_classes)
-        descending_fifth_root_motion = int((current_chord.root + 7) % 12 == prev_chord.root)
+        upward_semitone_resolution_to_root = \
+            int((current_chord.root + 11) % 12 in prev_chord.pitch_classes) \
+                if current_chord.root is not None else 0
+        downward_semitone_resolution_to_root = \
+            int((current_chord.root + 1) % 12 in prev_chord.pitch_classes) \
+                if current_chord.root is not None else 0
+        descending_fifth_root_motion = \
+            int((current_chord.root + 7) % 12 == prev_chord.root) \
+                if current_chord.root is not None and prev_chord.root is not None else 0
         # Return the computed attributes as a tensor
         return [
             previous_time_positions,

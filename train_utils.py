@@ -881,7 +881,7 @@ def make_mixed_batch(batch, source_key):
     return mixed_batch
 # end make_mixed_batch
 
-def validation_IPLG_loop(
+def validation_graph_loop(
         transformer_model,
         valloader,
         mask_token_id, bar_token_id,
@@ -995,21 +995,19 @@ def validation_IPLG_loop(
                             val_loss, val_logits_loss, val_foreign_loss, val_home_loss, \
                             val_accuracy, saving_version] )
     return best_val_loss, saving_version
-# end validation_lacta_loop
+# end validation_graph_loop
 
-def train_IPLG(
-        transformer_model, 
-        latent_loss_fn, logits_loss_fn,
+def train_graph_loop(
+        transformer_model, graph_model,
+        logits_loss_fn,
         optimizer, trainloader, valloader, mask_token_id,
         epochs=100,
-        logits_lambda=0.1,
-        exponent=-1,
         results_path=None,
         transformer_path=None,
+        graph_model_path=None,
         bar_token_id=None,
         validations_per_epoch=1,
         tqdm_position=0,
-        loss_scheme='fhl', # f: foreign, h: home, l: logits
         freeze_base=True
     ):
     device = transformer_model.device
@@ -1019,10 +1017,12 @@ def train_IPLG(
     # save results and model
     print('results_path:', results_path)
     if results_path is not None:
-        result_fields = ['epoch', 'step', 'train_loss', 'train_logits_loss',  'train_foreign_loss', \
-                        'train_home_loss', 'train_acc', \
-                        'val_loss', 'val_logits_loss', 'val_foreign_loss', 'val_home_loss', \
-                        'val_acc', 'sav_version']
+        result_fields = ['epoch', 'step', \
+                        'total_train_loss', 'real_loss', 'recomposed_loss',  'random_loss', \
+                        'real_acc', 'recomposed_acc', 'random_acc', \
+                        'total_val_loss', 'real_val_loss', 'recomposed_val_loss',  'random_val_loss', \
+                        'real_val_acc', 'recomposed_val_acc', 'random_val_acc', \
+                        'sav_version']
         with open( results_path, 'w' ) as f:
             writer = csv.writer(f)
             writer.writerow( result_fields )
@@ -1035,18 +1035,22 @@ def train_IPLG(
     step = 0
 
     for epoch in range(epochs):
-        running_loss = 0
-        train_loss = 0
-        running_accuracy = 0
-        train_accuracy = 0
+        running_total_loss = 0
+        total_train_loss = 0
+        running_real_loss = 0
+        real_train_loss = 0
+        running_recomposed_loss = 0
+        recomposed_train_loss = 0
+        running_random_loss = 0
+        random_train_loss = 0
 
-        train_foreign_loss = 0
-        train_home_loss = 0
-        running_foreign_loss = 0
-        running_home_loss = 0
+        real_accuracy = 0
+        running_real_accuracy = 0
+        recomposed_accuracy = 0
+        running_recomposed_accuracy = 0
+        random_accuracy = 0
+        running_random_accuracy = 0
 
-        train_logits_loss = 0
-        running_logits_loss = 0
         batch_num = 0
         
         with tqdm(trainloader, unit='batch', position=tqdm_position) as tepoch:
@@ -1055,80 +1059,90 @@ def train_IPLG(
                 transformer_model.train()
                 if freeze_base:
                     transformer_model.freeze_base()
-                melody_grid = batch["pianoroll"].to(device)
-                harmony_gt = batch["harmony_ids"].to(device)
-                home_guidance_embeddings = batch["latent"].to(device)
-                mixed_batch = make_mixed_batch(batch, "latent")
-                foreign_guidance_embeddings = mixed_batch["latent"].to(device)
                 
-                if exponent == -1:
-                    percent_visible = 0.0
-                else:
-                    percent_visible = min(1.0, (step+1)/total_steps)**exponent  # 5th power goes around half way near zero
-                L = harmony_gt.shape[1]
-                num_visible = min( int(L * percent_visible), L-1 )  # ensure at least one token is predicted
-                harmony_input, harmony_target = full_to_partial_masking(
-                    harmony_gt,
-                    mask_token_id,
-                    num_visible,
-                    bar_token_id=bar_token_id
-                )
-                
-                # Step 1: train foreign latent attraction
-                logits, hidden = transformer_model(
-                    melody_grid.to(device),
-                    harmony_input.to(device),
-                    foreign_guidance_embeddings.to(device),
-                    return_hidden=True
-                )
-                foreign_guidance_loss = latent_loss_fn(foreign_guidance_embeddings.to(device), hidden.to(device))
+                real_guide_z = graph_model(batch['real_graph'].to(device))
+                real_constraints = batch['real_harmony_ids'].clone()
+                real_constraints[batch['mask_token_positions']] = mask_token_id
 
-                # Step 2: home latent attraction validation
-                logits, hidden = transformer_model(
-                    melody_grid.to(device),
-                    harmony_input.to(device),
-                    home_guidance_embeddings.to(device),
-                    return_hidden=True
+                recomposed_guide_z = graph_model(batch['recomposed_graph'].to(device))
+                recomposed_constraints = batch['recomposed_harmony_ids'].clone()
+                recomposed_constraints[batch['mask_token_positions']] = mask_token_id
+
+                random_guide_z = graph_model(batch['random_graph'].to(device))
+                random_constraints = batch['real_harmony_ids'].clone()
+                random_constraints[batch['mask_token_positions']] = mask_token_id
+
+                real_logits = transformer_model(
+                    batch['pianoroll'].to(device),
+                    real_constraints.to(device),
+                    real_guide_z.to(device)
                 )
-                home_guidance_loss = latent_loss_fn(home_guidance_embeddings.to(device), hidden.to(device))
-                logits_loss = logits_loss_fn(logits.view(-1, logits.size(-1)), harmony_target.view(-1))
+
+                recomposed_logits = transformer_model(
+                    batch['pianoroll'].to(device),
+                    recomposed_constraints.to(device),
+                    recomposed_guide_z.to(device)
+                )
+
+                random_logits = transformer_model(
+                    batch['pianoroll'].to(device),
+                    random_constraints.to(device),
+                    random_guide_z.to(device)
+                )
+
+                real_logits_loss = logits_loss_fn(
+                    real_logits.view(-1, real_logits.size(-1)),
+                    batch['real_harmony_ids'].view(-1)
+                )
+                recomposed_logits_loss = logits_loss_fn(
+                    recomposed_logits.view(-1, recomposed_logits.size(-1)),
+                    batch['recomposed_harmony_ids'].view(-1)
+                )
+                random_logits_loss = logits_loss_fn(
+                    random_logits.view(-1, random_logits.size(-1)),
+                    batch['random_harmony_ids'].view(-1)
+                )
 
                 optimizer.zero_grad()
-                loss = ('f' in loss_scheme)*foreign_guidance_loss + \
-                    ('h' in loss_scheme)*home_guidance_loss + \
-                    logits_lambda*('l' in loss_scheme)*logits_loss
+                loss = real_logits_loss + recomposed_logits_loss + random_logits_loss
                 loss.backward()
                 optimizer.step()
                 # scheduler.step()
 
                 # update loss and accuracy
+                # loss
                 batch_num += 1
-                running_loss += loss.item()
-                train_loss = running_loss/batch_num
+                running_total_loss += loss.item()
+                total_train_loss = running_total_loss/batch_num
+                running_real_loss += real_logits_loss.item()
+                real_train_loss = running_real_loss/batch_num
+                running_recomposed_loss += recomposed_logits_loss.item()
+                recomposed_train_loss = running_recomposed_loss/batch_num
+                running_random_loss += random_logits_loss.item()
+                random_train_loss = running_random_loss/batch_num
+
                 # accuracy
-                predictions = logits.argmax(dim=-1)
+                real_predictions = real_logits.argmax(dim=-1)
+                recomposed_predictions = recomposed_logits.argmax(dim=-1)
+                random_predictions = random_logits.argmax(dim=-1)
                 # mask = torch.logical_and(harmony_target != harmony_input, harmony_target != -100)
-                mask = harmony_target != -100
-                running_accuracy += (predictions[mask] == harmony_target[mask]).sum().item()/max(1,mask.sum().item())
-                train_accuracy = running_accuracy/batch_num
-                
-                # partial losses
-                running_foreign_loss += foreign_guidance_loss.item()
-                train_foreign_loss = running_foreign_loss/batch_num
-                running_home_loss += home_guidance_loss.item()
-                train_home_loss = running_home_loss/batch_num
-                running_logits_loss += logits_loss.item()
-                train_logits_loss = running_logits_loss/batch_num
+                mask = batch['real_harmony_ids'] != -100
+                running_real_accuracy += (real_predictions[mask] == batch['real_harmony_ids'][mask]).sum().item()/max(1,mask.sum().item())
+                real_accuracy = running_real_accuracy/batch_num
+                running_recomposed_accuracy += (recomposed_predictions[mask] == batch['recomposed_harmony_ids'][mask]).sum().item()/max(1,mask.sum().item())
+                recomposed_accuracy = running_recomposed_accuracy/batch_num
+                running_random_accuracy += (random_predictions[mask] == batch['random_harmony_ids'][mask]).sum().item()/max(1,mask.sum().item())
+                random_accuracy = running_random_accuracy/batch_num
 
                 tepoch.set_postfix(
-                    loss=train_loss,
-                    floss=train_foreign_loss,
-                    hloss=train_home_loss,
-                    hacc=train_accuracy
+                    loss=total_train_loss,
+                    acc_real=real_accuracy,
+                    acc_rec=recomposed_accuracy,
+                    acc_rnd=random_accuracy
                 )
                 step += 1
                 if step%(total_steps//(epochs*validations_per_epoch)) == 0 or step == total_steps:
-                    best_val_loss, saving_version = validation_IPLG_loop(
+                    best_val_loss, saving_version = validation_graph_loop(
                         transformer_model,
                         valloader,
                         mask_token_id,
@@ -1152,4 +1166,4 @@ def train_IPLG(
             # end for batch
         # end with tqdm
     # end for epoch
-# end train_lacta
+# end train_graph_loop
