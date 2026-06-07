@@ -956,15 +956,15 @@ def validation_graph_loop(
 
                 real_logits_loss = logits_loss_fn(
                     real_logits.view(-1, real_logits.size(-1)),
-                    batch['real_harmony_ids'].view(-1)
+                    batch['real_harmony_ids'].view(-1).to(device)
                 )
                 recomposed_logits_loss = logits_loss_fn(
                     recomposed_logits.view(-1, recomposed_logits.size(-1)),
-                    batch['recomposed_harmony_ids'].view(-1)
+                    batch['recomposed_harmony_ids'].view(-1).to(device)
                 )
                 random_logits_loss = logits_loss_fn(
                     random_logits.view(-1, random_logits.size(-1)),
-                    batch['random_harmony_ids'].view(-1)
+                    batch['random_harmony_ids'].view(-1).to(device)
                 )
 
                 loss = real_logits_loss + recomposed_logits_loss + random_logits_loss
@@ -987,11 +987,11 @@ def validation_graph_loop(
                 random_predictions = random_logits.argmax(dim=-1)
                 # mask = torch.logical_and(harmony_target != harmony_input, harmony_target != -100)
                 mask = batch['real_harmony_ids'] != -100
-                running_real_accuracy += (real_predictions[mask] == batch['real_harmony_ids'][mask]).sum().item()/max(1,mask.sum().item())
+                running_real_accuracy += (real_predictions[mask] == batch['real_harmony_ids'][mask].to(device)).sum().item()/max(1,mask.sum().item())
                 real_val_accuracy = running_real_accuracy/batch_num
-                running_recomposed_accuracy += (recomposed_predictions[mask] == batch['recomposed_harmony_ids'][mask]).sum().item()/max(1,mask.sum().item())
+                running_recomposed_accuracy += (recomposed_predictions[mask] == batch['recomposed_harmony_ids'][mask].to(device)).sum().item()/max(1,mask.sum().item())
                 recomposed_val_accuracy = running_recomposed_accuracy/batch_num
-                running_random_accuracy += (random_predictions[mask] == batch['random_harmony_ids'][mask]).sum().item()/max(1,mask.sum().item())
+                running_random_accuracy += (random_predictions[mask] == batch['random_harmony_ids'][mask].to(device)).sum().item()/max(1,mask.sum().item())
                 random_val_accuracy = running_random_accuracy/batch_num
 
                 tepoch.set_postfix(
@@ -1038,6 +1038,8 @@ def train_graph_loop(
         freeze_base=True
     ):
     device = transformer_model.device
+    print('device: ', device)
+    graph_model.to(device)
     best_val_loss = np.inf
     saving_version = 0
 
@@ -1120,15 +1122,15 @@ def train_graph_loop(
 
                 real_logits_loss = logits_loss_fn(
                     real_logits.view(-1, real_logits.size(-1)),
-                    batch['real_harmony_ids'].view(-1)
+                    batch['real_harmony_ids'].view(-1).to(device)
                 )
                 recomposed_logits_loss = logits_loss_fn(
                     recomposed_logits.view(-1, recomposed_logits.size(-1)),
-                    batch['recomposed_harmony_ids'].view(-1)
+                    batch['recomposed_harmony_ids'].view(-1).to(device)
                 )
                 random_logits_loss = logits_loss_fn(
                     random_logits.view(-1, random_logits.size(-1)),
-                    batch['random_harmony_ids'].view(-1)
+                    batch['random_harmony_ids'].view(-1).to(device)
                 )
 
                 optimizer.zero_grad()
@@ -1155,11 +1157,11 @@ def train_graph_loop(
                 random_predictions = random_logits.argmax(dim=-1)
                 # mask = torch.logical_and(harmony_target != harmony_input, harmony_target != -100)
                 mask = batch['real_harmony_ids'] != -100
-                running_real_accuracy += (real_predictions[mask] == batch['real_harmony_ids'][mask]).sum().item()/max(1,mask.sum().item())
+                running_real_accuracy += (real_predictions[mask] == batch['real_harmony_ids'][mask].to(device)).sum().item()/max(1,mask.sum().item())
                 real_accuracy = running_real_accuracy/batch_num
-                running_recomposed_accuracy += (recomposed_predictions[mask] == batch['recomposed_harmony_ids'][mask]).sum().item()/max(1,mask.sum().item())
+                running_recomposed_accuracy += (recomposed_predictions[mask] == batch['recomposed_harmony_ids'][mask].to(device)).sum().item()/max(1,mask.sum().item())
                 recomposed_accuracy = running_recomposed_accuracy/batch_num
-                running_random_accuracy += (random_predictions[mask] == batch['random_harmony_ids'][mask]).sum().item()/max(1,mask.sum().item())
+                running_random_accuracy += (random_predictions[mask] == batch['random_harmony_ids'][mask].to(device)).sum().item()/max(1,mask.sum().item())
                 random_accuracy = running_random_accuracy/batch_num
 
                 tepoch.set_postfix(

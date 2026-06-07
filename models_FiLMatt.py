@@ -289,14 +289,14 @@ class AttnFiLMSEModel(nn.Module):
         self,
         chord_vocab_size,
         guidance_dim,
+        device,
         d_model=512,
         nhead=8,
         num_layers=8,
         dim_feedforward=2048,
         pianoroll_dim=13,
         grid_length=80,
-        dropout=0.3,
-        device='cpu'
+        dropout=0.3
     ):
         super().__init__()
 
@@ -365,7 +365,7 @@ class AttnFiLMSEModel(nn.Module):
             chord_vocab_size
         )
 
-        self.to(device)
+        # self.to(device)
     # end init
 
     def forward(

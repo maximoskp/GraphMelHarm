@@ -154,69 +154,70 @@ class HarmonicGraphDataset(Dataset):
         d = self.data[idx]
         found_segment = False
         while not found_segment:
-            # try:
-            bar_start, bar_end = d['graph_ready_object'].get_valid_bar_segment_range(self.max_segment_bars)
+            try:
+                bar_start, bar_end = d['graph_ready_object'].get_valid_bar_segment_range(self.max_segment_bars)
 
-            # ==========================================
-            # Extract canonical segment
-            # ==========================================
-            d['graph_ready_object'].make_graph_of_segment(bar_start, bar_end)
-            real_graph = d['graph_ready_object'].segment_graph
+                # ==========================================
+                # Extract canonical segment
+                # ==========================================
+                d['graph_ready_object'].make_graph_of_segment(bar_start, bar_end)
+                real_graph = d['graph_ready_object'].segment_graph
 
-            # get token positions for recomposition and randomization
-            token_positions = d['graph_ready_object'].get_token_positions_of_bar_segment()
-            mask_token_positions = np.zeros(len(d['harmony_ids']), dtype=bool)
-            mask_token_positions[token_positions] = True
-            # mask the tokens in the segment
-            masked_tokens = np.array(d['harmony_ids'])
-            masked_tokens[token_positions] = self.tokenizer.mask_token_id
-            masked_tokens = masked_tokens.tolist()
-            # prepare inputs for recomposition
-            melody_grid = torch.tensor(d['pianoroll'], dtype=torch.float32).unsqueeze(0)
-            harmony_ids = torch.tensor(d['harmony_ids'], dtype=torch.long).unsqueeze(0)
-            masked_tokens_tensor = torch.tensor(masked_tokens, dtype=torch.long).unsqueeze(0)
+                # get token positions for recomposition and randomization
+                token_positions = d['graph_ready_object'].get_token_positions_of_bar_segment()
+                mask_token_positions = np.zeros(len(d['harmony_ids']), dtype=bool)
+                mask_token_positions[token_positions] = True
+                # mask the tokens in the segment
+                masked_tokens = np.array(d['harmony_ids'])
+                masked_tokens[token_positions] = self.tokenizer.mask_token_id
+                masked_tokens = masked_tokens.tolist()
+                # prepare inputs for recomposition
+                melody_grid = torch.tensor(d['pianoroll'], dtype=torch.float32).unsqueeze(0)
+                harmony_ids = torch.tensor(d['harmony_ids'], dtype=torch.long).unsqueeze(0)
+                masked_tokens_tensor = torch.tensor(masked_tokens, dtype=torch.long).unsqueeze(0)
 
-            # recomposed view
-            temperature = 1.0 + np.random.rand() * 3.0
-            recomposed_harmony_ids = nucleus_token_by_token_generate(
-                model=self.model,
-                melody_grid=melody_grid.to(self.model.device),
-                guidance_vector=None,
-                mask_token_id=self.tokenizer.mask_token_id,
-                chord_constraints=masked_tokens_tensor.to(self.model.device),
-                pad_token_id=self.tokenizer.pad_token_id,
-                nc_token_id=self.tokenizer.nc_token_id,
-                temperature=temperature,
-            )
-            # re-make dataset item for constructing graph
-            d_recomposed = d.copy()
-            d_recomposed['harmony_ids'] = recomposed_harmony_ids.squeeze(0).cpu().numpy().tolist()
-            graph_ready_object = make_graph_ready_for_dataset_item(d_recomposed, self.tokenizer)
-            d_recomposed['graph_ready_object'] = graph_ready_object
-            d_recomposed['graph_ready_object'].make_graph_of_segment(bar_start, bar_end)
-            recomposed_graph = d_recomposed['graph_ready_object'].segment_graph
+                # recomposed view
+                temperature = 1.0 + np.random.rand() * 3.0
+                recomposed_harmony_ids = nucleus_token_by_token_generate(
+                    model=self.model,
+                    melody_grid=melody_grid.to(self.model.device),
+                    guidance_vector=None,
+                    mask_token_id=self.tokenizer.mask_token_id,
+                    chord_constraints=masked_tokens_tensor.to(self.model.device),
+                    pad_token_id=self.tokenizer.pad_token_id,
+                    nc_token_id=self.tokenizer.nc_token_id,
+                    temperature=temperature,
+                )
+                # re-make dataset item for constructing graph
+                d_recomposed = d.copy()
+                d_recomposed['harmony_ids'] = recomposed_harmony_ids.squeeze(0).cpu().numpy().tolist()
+                graph_ready_object = make_graph_ready_for_dataset_item(d_recomposed, self.tokenizer)
+                d_recomposed['graph_ready_object'] = graph_ready_object
+                d_recomposed['graph_ready_object'].make_graph_of_segment(bar_start, bar_end)
+                recomposed_graph = d_recomposed['graph_ready_object'].segment_graph
 
-            # randomized view
-            random_harmony_ids = masked_tokens_tensor.clone()
-            mask_positions = masked_tokens_tensor == self.tokenizer.mask_token_id
-            random_harmony_ids[mask_positions] = torch.randint(
-                7, 
-                len(self.tokenizer.vocab), 
-                (mask_positions.sum().item(),),
-                device=masked_tokens_tensor.device
-            )
-            # re-make dataset item for constructing graph
-            d_random = d.copy()
-            d_random['harmony_ids'] = random_harmony_ids.squeeze(0).cpu().numpy().tolist()
-            graph_ready_object = make_graph_ready_for_dataset_item(d_random, self.tokenizer)
-            d_random['graph_ready_object'] = graph_ready_object
-            d_random['graph_ready_object'].make_graph_of_segment(bar_start, bar_end)
-            random_graph = d_random['graph_ready_object'].segment_graph
-            found_segment = True
-            # except:
-            #     print(f'retrying segment for idx {idx}: bar_start: {bar_start} - bar_end: {bar_end}')
-            #     idx = (idx + 1)%len(self.data)
-            #     d = self.data[idx]
+                # randomized view
+                random_harmony_ids = masked_tokens_tensor.clone()
+                mask_positions = masked_tokens_tensor == self.tokenizer.mask_token_id
+                random_harmony_ids[mask_positions] = torch.randint(
+                    7, 
+                    len(self.tokenizer.vocab), 
+                    (mask_positions.sum().item(),),
+                    device=masked_tokens_tensor.device
+                )
+                # re-make dataset item for constructing graph
+                d_random = d.copy()
+                d_random['harmony_ids'] = random_harmony_ids.squeeze(0).cpu().numpy().tolist()
+                graph_ready_object = make_graph_ready_for_dataset_item(d_random, self.tokenizer)
+                d_random['graph_ready_object'] = graph_ready_object
+                d_random['graph_ready_object'].make_graph_of_segment(bar_start, bar_end)
+                random_graph = d_random['graph_ready_object'].segment_graph
+                found_segment = True
+            except Exception as e:
+                print(e)
+                # print(f'retrying segment for idx {idx}: bar_start: {bar_start} - bar_end: {bar_end}')
+                idx = (idx + 1)%len(self.data)
+                d = self.data[idx]
 
         return {
 

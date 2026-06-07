@@ -39,15 +39,16 @@ def make_graph_ready_for_dataset_item(d, tokenizer):
 
 def bar_split(harmony_ids, pianoroll, tokenizer):
     bars = []
-    current_bar = {
-        'chord_ids': [],
-        'melody_pcs': [],
-        'chord_token_positions': [],
-        'bar_token_positions': []
-    }
+    # current_bar = {
+    #     'chord_ids': [],
+    #     'melody_pcs': [],
+    #     'chord_token_positions': [],
+    #     'bar_token_positions': []
+    # }
+    current_bar = None
     for i, hid in enumerate(harmony_ids):
         if hid == tokenizer.vocab['<bar>']:
-            if i != 0:  # avoid appending an empty bar at the start
+            if i != 0 and current_bar is not None:  # avoid appending an empty bar at the start
                 bars.append(current_bar)
             current_bar = {
                 'chord_ids': [],
@@ -57,10 +58,16 @@ def bar_split(harmony_ids, pianoroll, tokenizer):
             }
             # current_bar['bar_token_positions'].append(i)
         else:
-            current_bar['chord_ids'].append(hid)
-            current_bar['melody_pcs'].append(np.where(pianoroll[i] > 0)[0])
-            current_bar['chord_token_positions'].append(i)
-            current_bar['bar_token_positions'].append(i)
+            # make sure there is a decodable chord id
+            if hid > 6 and current_bar is not None:
+                current_bar['chord_ids'].append(hid)
+                current_bar['melody_pcs'].append(np.where(pianoroll[i] > 0)[0])
+                current_bar['chord_token_positions'].append(i)
+                current_bar['bar_token_positions'].append(i)
+            else:
+                # if there is at least one non-decodable chord,
+                # discard bar
+                current_bar = None
     if current_bar:
         bars.append(current_bar)
     return bars
@@ -127,6 +134,7 @@ class Chord:
             self.get_chord_pitch_features()
             self.get_chord_melody_features()
         else:
+            print(f'problem with chord_id: {chord_id}')
             self.graph_features = None
     # end init
 

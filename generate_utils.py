@@ -188,33 +188,25 @@ def save_harmonized_score(score, title="Harmonized Piece", out_path="harmonized.
 
 def load_AttnFiLMSEModel(
         tokenizer,
+        device,
         guidance_dim=128,
         d_model=512,
-        device_name='cpu',
         checkpoint_path=None,
     ):
-    if device_name == 'cpu':
-        device = torch.device('cpu')
-    else:
-        if torch.cuda.is_available():
-            device = torch.device(device_name)
-        else:
-            print('Selected device not available: ' + device_name)
-    # end device selection
     transformer_model = AttnFiLMSEModel(
         chord_vocab_size=len(tokenizer.vocab),
         guidance_dim=guidance_dim,
+        device=device,
         d_model=d_model,
         nhead=8,
         num_layers=8,
         grid_length=80,
         pianoroll_dim=tokenizer.pianoroll_dim,
-        device=device,
     )
     if checkpoint_path is not None:
-        checkpoint = torch.load(checkpoint_path, map_location=device_name)
+        checkpoint = torch.load(checkpoint_path, map_location=device)
     else:
-        checkpoint = torch.load(f'saved_models/SE/pretrained.pt', map_location=device_name)
+        checkpoint = torch.load(f'saved_models/SE/pretrained_epoch203_nvis2.pt', map_location=device)
     transformer_model.load_state_dict(checkpoint)
     transformer_model.to(device)
     transformer_model.eval()

@@ -207,7 +207,7 @@ class HarmonicGraphEncoder(nn.Module):
 
         # pitch_ids = self.pitch_ids
         # pitch_ids = torch.arange(12)
-        data = data.to(self.pitch_ids.device)
+        data = data.to(next(self.parameters()).device)
         pitch_onehot = data["pitch"].x                      # (N, 12)
         pitch_classes = pitch_onehot.argmax(dim=-1)         # (N,)
         embedded_pitch = self.pitch_embedding(pitch_classes)  # (N, hidden_dim)
