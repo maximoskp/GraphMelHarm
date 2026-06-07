@@ -652,234 +652,9 @@ def train_with_curriculum(
     # end for epoch
 # end train_with_curriculum
 
-# ============ Simple FiLM ==============
-
-def validation_film_loop(
-        transformer_model, contrastive_model,
-        valloader,
-        mask_token_id, bar_token_id,
-        source_key,
-        num_visible,
-        logits_loss_fn,
-        epoch,
-        step,
-        train_loss, train_accuracy,
-        best_val_loss, saving_version,
-        results_path=None, transformer_path=None, tqdm_position=0
-    ):
-    device = transformer_model.device
-    transformer_model.eval()
-    with torch.no_grad():
-        running_loss = 0
-        val_loss = 0
-        running_accuracy = 0
-        val_accuracy = 0
-
-        batch_num = 0
-        print('validation')
-        with tqdm(valloader, unit='batch', position=tqdm_position) as tepoch:
-            tepoch.set_description(f'Epoch {epoch}@{step}| val')
-            for batch in tepoch:
-                melody_grid = batch["pianoroll"].to(device)
-                harmony_gt = batch["harmony_ids"].to(device)
-                home_guidance_embeddings = batch[source_key].to(device)
-
-                harmony_input, harmony_target = full_to_partial_masking(
-                    harmony_gt,
-                    mask_token_id,
-                    num_visible,
-                    bar_token_id=bar_token_id
-                )
-
-                z_guidance = contrastive_model.source_proj(home_guidance_embeddings.to(device))
-                logits, _ = transformer_model(
-                    melody_grid.to(device),
-                    harmony_input.to(device),
-                    z_guidance.to(device),
-                    return_hidden=True
-                )
-
-                logits_loss = logits_loss_fn(logits.view(-1, logits.size(-1)), harmony_target.view(-1))
-
-                loss = logits_loss
-
-                # update loss and accuracy
-                batch_num += 1
-                running_loss += loss.item()
-                val_loss = running_loss/batch_num
-                # accuracy
-                predictions = logits.argmax(dim=-1)
-                # mask = torch.logical_and(harmony_target != harmony_input, harmony_target != -100)
-                mask = harmony_target != -100
-                running_accuracy += (predictions[mask] == harmony_target[mask]).sum().item()/mask.sum().item()
-                val_accuracy = running_accuracy/batch_num
-
-                tepoch.set_postfix(
-                    loss=val_loss,
-                    acc=val_accuracy
-                )
-            # end for batch
-        # end with tqdm
-    # end with no grad
-    if transformer_path is not None:
-        if  best_val_loss > val_loss:
-            print('saving!')
-            saving_version += 1
-            best_val_loss = val_loss
-            torch.save(transformer_model.state_dict(), transformer_path)
-    print(f'validation: accuracy={val_accuracy}, loss={val_loss}')
-    print('results_path: ', results_path)
-    if results_path is not None:
-        with open( results_path, 'a' ) as f:
-            writer = csv.writer(f)
-            writer.writerow( [epoch, step, train_loss, \
-                            train_accuracy, \
-                            val_loss, \
-                            val_accuracy, saving_version] )
-    return best_val_loss, saving_version
-# end validation_film_loop
-def train_film(
-        transformer_model, contrastive_model, 
-        logits_loss_fn,
-        optimizer, trainloader, valloader, mask_token_id,
-        source_key,
-        epochs=100,
-        exponent=-1,
-        results_path=None,
-        transformer_path=None,
-        bar_token_id=None,
-        validations_per_epoch=1,
-        tqdm_position=0,
-        freeze_base=True
-    ):
-    device = transformer_model.device
-    best_val_loss = np.inf
-    saving_version = 0
-
-    # save results and model
-    print('results_path:', results_path)
-    if results_path is not None:
-        result_fields = ['epoch', 'step', 'train_loss', \
-                        'train_acc', \
-                        'val_loss', \
-                        'val_acc', 'sav_version']
-        with open( results_path, 'w' ) as f:
-            writer = csv.writer(f)
-            writer.writerow( result_fields )
-
-    # Compute total training steps
-    total_steps = len(trainloader) * epochs
-    # Define the scheduler
-    # warmup_steps = int(0.1 * total_steps)  # 10% of total steps for warmup
-    # scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps, num_training_steps=total_steps)
-    step = 0
-
-    for epoch in range(epochs):
-        running_loss = 0
-        train_loss = 0
-        running_accuracy = 0
-        train_accuracy = 0
-        batch_num = 0
-        
-        with tqdm(trainloader, unit='batch', position=tqdm_position) as tepoch:
-            tepoch.set_description(f'Epoch {epoch} | trn')
-            for batch in tepoch:
-                transformer_model.train()
-                if freeze_base:
-                    transformer_model.freeze_base()
-                melody_grid = batch["pianoroll"].to(device)
-                harmony_gt = batch["harmony_ids"].to(device)
-                home_guidance_embeddings = batch[source_key].to(device)
-                
-                if exponent == -1:
-                    percent_visible = 0.0
-                else:
-                    percent_visible = min(1.0, (step+1)/total_steps)**exponent  # 5th power goes around half way near zero
-                L = harmony_gt.shape[1]
-                num_visible = min( int(L * percent_visible), L-1 )  # ensure at least one token is predicted
-                harmony_input, harmony_target = full_to_partial_masking(
-                    harmony_gt,
-                    mask_token_id,
-                    num_visible,
-                    bar_token_id=bar_token_id
-                )
-                
-                z_guidance = contrastive_model.source_proj(home_guidance_embeddings.to(device))
-                logits, _ = transformer_model(
-                    melody_grid.to(device),
-                    harmony_input.to(device),
-                    z_guidance.to(device),
-                    return_hidden=True
-                )
-
-                logits_loss = logits_loss_fn(logits.view(-1, logits.size(-1)), harmony_target.view(-1))
-
-                optimizer.zero_grad()
-                loss = logits_loss
-                loss.backward()
-                optimizer.step()
-                # scheduler.step()
-
-                # update loss and accuracy
-                batch_num += 1
-                running_loss += loss.item()
-                train_loss = running_loss/batch_num
-                # accuracy
-                predictions = logits.argmax(dim=-1)
-                # mask = torch.logical_and(harmony_target != harmony_input, harmony_target != -100)
-                mask = harmony_target != -100
-                running_accuracy += (predictions[mask] == harmony_target[mask]).sum().item()/max(1,mask.sum().item())
-                train_accuracy = running_accuracy/batch_num
-
-                tepoch.set_postfix(
-                    loss=train_loss,
-                    hacc=train_accuracy
-                )
-                step += 1
-                if step%(total_steps//(epochs*validations_per_epoch)) == 0 or step == total_steps:
-                    best_val_loss, saving_version = validation_film_loop(
-                        transformer_model, contrastive_model,
-                        valloader,
-                        mask_token_id,
-                        bar_token_id,
-                        source_key,
-                        num_visible,
-                        logits_loss_fn,
-                        epoch,
-                        step,
-                        train_loss,
-                        train_accuracy,
-                        best_val_loss,
-                        saving_version,
-                        results_path=results_path,
-                        transformer_path=transformer_path,
-                        tqdm_position=tqdm_position
-                    )
-            # end for batch
-        # end with tqdm
-    # end for epoch
-# end train_film
-
-
-# ================ IPLG ================
-
-def make_mixed_batch(batch, source_key):
-    B = batch[source_key].size(0)
-
-    # Create a random permutation
-    perm = torch.randperm(B)
-
-    # Ensure no element maps to itself
-    if B > 1:
-        while torch.any(perm == torch.arange(B, device=perm.device)):
-            perm = torch.randperm(B)
-
-    mixed_batch = {}
-    for k, v in batch.items():
-        mixed_batch[k] = v[perm]
-
-    return mixed_batch
-# end make_mixed_batch
+# ================================================================
+# Graph training
+# ================================================================
 
 def validation_graph_loop(
         transformer_model, graph_model,
@@ -933,7 +708,7 @@ def validation_graph_loop(
                 recomposed_constraints[batch['mask_token_positions']] = mask_token_id
 
                 random_guide_z = graph_model(batch['random_graph'].to(device))
-                random_constraints = batch['real_harmony_ids'].clone()
+                random_constraints = batch['random_harmony_ids'].clone()
                 random_constraints[batch['mask_token_positions']] = mask_token_id
 
                 real_logits = transformer_model(
@@ -1099,7 +874,7 @@ def train_graph_loop(
                 recomposed_constraints[batch['mask_token_positions']] = mask_token_id
 
                 random_guide_z = graph_model(batch['random_graph'].to(device))
-                random_constraints = batch['real_harmony_ids'].clone()
+                random_constraints = batch['random_harmony_ids'].clone()
                 random_constraints[batch['mask_token_positions']] = mask_token_id
 
                 real_logits = transformer_model(
@@ -1196,3 +971,323 @@ def train_graph_loop(
         # end with tqdm
     # end for epoch
 # end train_graph_loop
+
+# ================================================================
+# BiLSTM training
+# ================================================================
+
+def validation_bilstm_loop(
+        transformer_model, bilstm_model,
+        valloader,
+        mask_token_id, bar_token_id,
+        logits_loss_fn,
+        epoch,
+        step,
+        total_train_loss,
+        real_train_loss,
+        recomposed_train_loss,
+        random_train_loss,
+        real_accuracy,
+        recomposed_accuracy,
+        random_accuracy,
+        best_val_loss, saving_version,
+        results_path=None, transformer_path=None, 
+        bilstm_model_path=None, tqdm_position=0
+    ):
+    device = transformer_model.device
+    transformer_model.eval()
+    bilstm_model.eval()
+    with torch.no_grad():
+        running_total_loss = 0
+        total_val_loss = 0
+        running_real_loss = 0
+        real_val_loss = 0
+        running_recomposed_loss = 0
+        recomposed_val_loss = 0
+        running_random_loss = 0
+        random_val_loss = 0
+
+        real_val_accuracy = 0
+        running_real_accuracy = 0
+        recomposed_val_accuracy = 0
+        running_recomposed_accuracy = 0
+        random_val_accuracy = 0
+        running_random_accuracy = 0
+
+        batch_num = 0
+        print('validation')
+        with tqdm(valloader, unit='batch', position=tqdm_position) as tepoch:
+            tepoch.set_description(f'Epoch {epoch}@{step}| val')
+            for batch in tepoch:
+                real_guide_z = bilstm_model(batch['real_bilstm'].to(device), batch['real_lengths'].to(device))
+                real_constraints = batch['real_harmony_ids'].clone()
+                real_constraints[batch['mask_token_positions']] = mask_token_id
+
+                recomposed_guide_z = bilstm_model(batch['recomposed_bilstm'].to(device), batch['recomposed_lengths'].to(device))
+                recomposed_constraints = batch['recomposed_harmony_ids'].clone()
+                recomposed_constraints[batch['mask_token_positions']] = mask_token_id
+
+                random_guide_z = bilstm_model(batch['random_bilstm'].to(device), batch['random_lengths'].to(device))
+                random_constraints = batch['random_harmony_ids'].clone()
+                random_constraints[batch['mask_token_positions']] = mask_token_id
+
+                real_logits = transformer_model(
+                    batch['pianoroll'].to(device),
+                    real_constraints.to(device),
+                    real_guide_z.to(device)
+                )
+
+                recomposed_logits = transformer_model(
+                    batch['pianoroll'].to(device),
+                    recomposed_constraints.to(device),
+                    recomposed_guide_z.to(device)
+                )
+
+                random_logits = transformer_model(
+                    batch['pianoroll'].to(device),
+                    random_constraints.to(device),
+                    random_guide_z.to(device)
+                )
+
+                real_logits_loss = logits_loss_fn(
+                    real_logits.view(-1, real_logits.size(-1)),
+                    batch['real_harmony_ids'].view(-1).to(device)
+                )
+                recomposed_logits_loss = logits_loss_fn(
+                    recomposed_logits.view(-1, recomposed_logits.size(-1)),
+                    batch['recomposed_harmony_ids'].view(-1).to(device)
+                )
+                random_logits_loss = logits_loss_fn(
+                    random_logits.view(-1, random_logits.size(-1)),
+                    batch['random_harmony_ids'].view(-1).to(device)
+                )
+
+                loss = real_logits_loss + recomposed_logits_loss + random_logits_loss
+
+                # update loss and accuracy
+                # loss
+                batch_num += 1
+                running_total_loss += loss.item()
+                total_val_loss = running_total_loss/batch_num
+                running_real_loss += real_logits_loss.item()
+                real_val_loss = running_real_loss/batch_num
+                running_recomposed_loss += recomposed_logits_loss.item()
+                recomposed_val_loss = running_recomposed_loss/batch_num
+                running_random_loss += random_logits_loss.item()
+                random_val_loss = running_random_loss/batch_num
+
+                # accuracy
+                real_predictions = real_logits.argmax(dim=-1)
+                recomposed_predictions = recomposed_logits.argmax(dim=-1)
+                random_predictions = random_logits.argmax(dim=-1)
+                # mask = torch.logical_and(harmony_target != harmony_input, harmony_target != -100)
+                mask = batch['real_harmony_ids'] != -100
+                running_real_accuracy += (real_predictions[mask] == batch['real_harmony_ids'][mask].to(device)).sum().item()/max(1,mask.sum().item())
+                real_val_accuracy = running_real_accuracy/batch_num
+                running_recomposed_accuracy += (recomposed_predictions[mask] == batch['recomposed_harmony_ids'][mask].to(device)).sum().item()/max(1,mask.sum().item())
+                recomposed_val_accuracy = running_recomposed_accuracy/batch_num
+                running_random_accuracy += (random_predictions[mask] == batch['random_harmony_ids'][mask].to(device)).sum().item()/max(1,mask.sum().item())
+                random_val_accuracy = running_random_accuracy/batch_num
+
+                tepoch.set_postfix(
+                    loss=total_val_loss,
+                    acc_real=real_val_accuracy,
+                    acc_rec=recomposed_val_accuracy,
+                    acc_rnd=random_val_accuracy
+                )
+            # end for batch
+        # end with tqdm
+    # end with no grad
+    if transformer_path is not None:
+        if  best_val_loss > total_val_loss:
+            print('saving!')
+            saving_version += 1
+            best_val_loss = total_val_loss
+            torch.save(transformer_model.state_dict(), transformer_path)
+            torch.save(bilstm_model.state_dict(), bilstm_model_path)
+    print(f'validation: loss={total_val_loss}, acc_real={real_val_accuracy}, acc_rec={recomposed_val_accuracy}, acc_rnd={random_val_accuracy}')
+    print('results_path: ', results_path)
+    if results_path is not None:
+        with open( results_path, 'a' ) as f:
+            writer = csv.writer(f)
+            writer.writerow( [epoch, step, \
+                        total_train_loss, real_train_loss, recomposed_train_loss,  random_train_loss, \
+                        real_accuracy, recomposed_accuracy, random_accuracy, \
+                        total_val_loss, real_val_loss, recomposed_val_loss,  random_val_loss, \
+                        real_val_accuracy, recomposed_val_accuracy, random_val_accuracy, \
+                        saving_version] )
+    return best_val_loss, saving_version
+# end validation_bilstm_loop
+
+def train_bilstm_loop(
+        transformer_model, bilstm_model,
+        logits_loss_fn,
+        optimizer, trainloader, valloader, mask_token_id,
+        epochs=100,
+        results_path=None,
+        transformer_path=None,
+        bilstm_model_path=None,
+        bar_token_id=None,
+        validations_per_epoch=1,
+        tqdm_position=0,
+        freeze_base=True
+    ):
+    device = transformer_model.device
+    print('device: ', device)
+    bilstm_model.to(device)
+    best_val_loss = np.inf
+    saving_version = 0
+
+    # save results and model
+    print('results_path:', results_path)
+    if results_path is not None:
+        result_fields = ['epoch', 'step', \
+                        'total_train_loss', 'real_train_loss', 'recomposed_train_loss',  'random_train_loss', \
+                        'real_train_acc', 'recomposed_train_acc', 'random_train_acc', \
+                        'total_val_loss', 'real_val_loss', 'recomposed_val_loss',  'random_val_loss', \
+                        'real_val_acc', 'recomposed_val_acc', 'random_val_acc', \
+                        'sav_version']
+        with open( results_path, 'w' ) as f:
+            writer = csv.writer(f)
+            writer.writerow( result_fields )
+
+    # Compute total training steps
+    total_steps = len(trainloader) * epochs
+    # Define the scheduler
+    # warmup_steps = int(0.1 * total_steps)  # 10% of total steps for warmup
+    # scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps, num_training_steps=total_steps)
+    step = 0
+
+    for epoch in range(epochs):
+        running_total_loss = 0
+        total_train_loss = 0
+        running_real_loss = 0
+        real_train_loss = 0
+        running_recomposed_loss = 0
+        recomposed_train_loss = 0
+        running_random_loss = 0
+        random_train_loss = 0
+
+        real_accuracy = 0
+        running_real_accuracy = 0
+        recomposed_accuracy = 0
+        running_recomposed_accuracy = 0
+        random_accuracy = 0
+        running_random_accuracy = 0
+
+        batch_num = 0
+        
+        with tqdm(trainloader, unit='batch', position=tqdm_position) as tepoch:
+            tepoch.set_description(f'Epoch {epoch} | trn')
+            for batch in tepoch:
+                transformer_model.train()
+                bilstm_model.train()
+                if freeze_base:
+                    transformer_model.freeze_base()
+                
+                real_guide_z = bilstm_model(batch['real_bilstm'].to(device), batch['real_lengths'].to(device))
+                real_constraints = batch['real_harmony_ids'].clone()
+                real_constraints[batch['mask_token_positions']] = mask_token_id
+
+                recomposed_guide_z = bilstm_model(batch['recomposed_bilstm'].to(device), batch['recomposed_lengths'].to(device))
+                recomposed_constraints = batch['recomposed_harmony_ids'].clone()
+                recomposed_constraints[batch['mask_token_positions']] = mask_token_id
+
+                random_guide_z = bilstm_model(batch['random_bilstm'].to(device), batch['random_lengths'].to(device))
+                random_constraints = batch['random_harmony_ids'].clone()
+                random_constraints[batch['mask_token_positions']] = mask_token_id
+
+                real_logits = transformer_model(
+                    batch['pianoroll'].to(device),
+                    real_constraints.to(device),
+                    real_guide_z.to(device)
+                )
+
+                recomposed_logits = transformer_model(
+                    batch['pianoroll'].to(device),
+                    recomposed_constraints.to(device),
+                    recomposed_guide_z.to(device)
+                )
+
+                random_logits = transformer_model(
+                    batch['pianoroll'].to(device),
+                    random_constraints.to(device),
+                    random_guide_z.to(device)
+                )
+
+                real_logits_loss = logits_loss_fn(
+                    real_logits.view(-1, real_logits.size(-1)),
+                    batch['real_harmony_ids'].view(-1).to(device)
+                )
+                recomposed_logits_loss = logits_loss_fn(
+                    recomposed_logits.view(-1, recomposed_logits.size(-1)),
+                    batch['recomposed_harmony_ids'].view(-1).to(device)
+                )
+                random_logits_loss = logits_loss_fn(
+                    random_logits.view(-1, random_logits.size(-1)),
+                    batch['random_harmony_ids'].view(-1).to(device)
+                )
+
+                optimizer.zero_grad()
+                loss = real_logits_loss + recomposed_logits_loss + random_logits_loss
+                loss.backward()
+                optimizer.step()
+                # scheduler.step()
+
+                # update loss and accuracy
+                # loss
+                batch_num += 1
+                running_total_loss += loss.item()
+                total_train_loss = running_total_loss/batch_num
+                running_real_loss += real_logits_loss.item()
+                real_train_loss = running_real_loss/batch_num
+                running_recomposed_loss += recomposed_logits_loss.item()
+                recomposed_train_loss = running_recomposed_loss/batch_num
+                running_random_loss += random_logits_loss.item()
+                random_train_loss = running_random_loss/batch_num
+
+                # accuracy
+                real_predictions = real_logits.argmax(dim=-1)
+                recomposed_predictions = recomposed_logits.argmax(dim=-1)
+                random_predictions = random_logits.argmax(dim=-1)
+                # mask = torch.logical_and(harmony_target != harmony_input, harmony_target != -100)
+                mask = batch['real_harmony_ids'] != -100
+                running_real_accuracy += (real_predictions[mask] == batch['real_harmony_ids'][mask].to(device)).sum().item()/max(1,mask.sum().item())
+                real_accuracy = running_real_accuracy/batch_num
+                running_recomposed_accuracy += (recomposed_predictions[mask] == batch['recomposed_harmony_ids'][mask].to(device)).sum().item()/max(1,mask.sum().item())
+                recomposed_accuracy = running_recomposed_accuracy/batch_num
+                running_random_accuracy += (random_predictions[mask] == batch['random_harmony_ids'][mask].to(device)).sum().item()/max(1,mask.sum().item())
+                random_accuracy = running_random_accuracy/batch_num
+
+                tepoch.set_postfix(
+                    loss=total_train_loss,
+                    acc_real=real_accuracy,
+                    acc_rec=recomposed_accuracy,
+                    acc_rnd=random_accuracy
+                )
+                step += 1
+                if step%(total_steps//(epochs*validations_per_epoch)) == 0 or step == total_steps:
+                    best_val_loss, saving_version = validation_bilstm_loop(
+                        transformer_model, bilstm_model,
+                        valloader,
+                        mask_token_id, bar_token_id,
+                        logits_loss_fn,
+                        epoch,
+                        step,
+                        total_train_loss,
+                        real_train_loss,
+                        recomposed_train_loss,
+                        random_train_loss,
+                        real_accuracy,
+                        recomposed_accuracy,
+                        random_accuracy,
+                        best_val_loss, saving_version,
+                        results_path=results_path,
+                        transformer_path=transformer_path,
+                        bilstm_model_path=bilstm_model_path,
+                        tqdm_position=tqdm_position
+                    )
+            # end for batch
+        # end with tqdm
+    # end for epoch
+# end train_bilstm_loop
