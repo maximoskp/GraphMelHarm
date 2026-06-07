@@ -136,6 +136,7 @@ class Chord:
         else:
             print(f'problem with chord_id: {chord_id}')
             self.graph_features = None
+            self.bilstm_features = None
     # end init
 
     def get_chord_pitch_features(self):
@@ -149,7 +150,9 @@ class Chord:
         # in the chord and 8 is the number of features
         # (root, third, fifth, seventh, extension, chord_pitch (1), melody_pitch (0), offset_from_chord_start (0.0))
         self.graph_features = torch.zeros((len(self.pitch_classes), 8), dtype=torch.float32)
+        self.bilstm_features = torch.zeros(24, dtype=torch.float32)
         for i,p in enumerate(self.pitch_classes):
+            self.bilstm_features[p] = 1
             self.pcs_map[p] = i
             self.graph_features[i] = torch.tensor([
                 p == self.root,
@@ -169,6 +172,7 @@ class Chord:
         # (root, third, fifth, seventh, extension, chord_pitch (0), melody_pitch (1), offset_from_chord_start (0.0))
         for i, pcs in enumerate(self.melody_pcs):
             for p in pcs:
+                self.bilstm_features[12 + p] = 1
                 if p in self.pcs_map.keys():
                     self.graph_features[self.pcs_map[p], 6] = 1
                 else:
@@ -193,7 +197,10 @@ class Chord:
         print(f"Bar Positions: {self.bar_positions}")
         print(f"Token Positions: {self.token_positions}")
         print(f"Melody PCs: {self.melody_pcs}")
-        print(f"Graph Features:\n{self.graph_features}")
+        if self.graph_features is not None:
+            print(f"Graph Features:\n{self.graph_features}")
+        if self.bilstm_features is not None:
+            print(f"BiLSTM Features\n{self.bilstm_features}")
     # end print_info
 # end class Chord
 
@@ -342,6 +349,22 @@ class MelodicHarmonization:
             descending_fifth_root_motion
         ]
     # end get_event_edge_attributes
+
+    def make_bilstm_seq_of_segment(self, bar_start, bar_end):
+        # make a graph of the segment from bar_start to bar_end (exclusive)
+        # using the bar_objects
+        if bar_start < 0 or bar_end > self.num_bars or bar_start >= bar_end:
+            raise ValueError("Invalid bar range")
+        self.segment_bar_objects = self.bar_objects[bar_start:bar_end]
+        self.segment_bar_start = bar_start
+        self.segment_bar_end = bar_end
+
+        tmp_bilstm_segment = []
+        for bar in self.segment_bar_objects:
+            for chord in bar.chord_objects:
+                tmp_bilstm_segment.append(chord.bilstm_features)
+        self.segment_bilstm = torch.stack(tmp_bilstm_segment)
+    # end make_bilstm_seq_of_segment
 # end class MelodicHarmonization
 
 def get_random_bar_chords_from_data(d):
