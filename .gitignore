@@ -1,6 +1,5 @@
 data/
 saved_models/
-results/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
