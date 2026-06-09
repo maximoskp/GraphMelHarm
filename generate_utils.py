@@ -6,6 +6,8 @@ import mir_eval
 import numpy as np
 from copy import deepcopy
 from models_FiLMatt import AttnFiLMSEModel
+from models_graph import HarmonicGraphEncoder
+from models_BiLSTM import HarmonyBiLSTM
 import os
 from music_utils import transpose_score
 
@@ -212,6 +214,21 @@ def load_AttnFiLMSEModel(
     transformer_model.eval()
     return transformer_model
 # end load_SE_FiLM
+
+def load_GraphModel(checkpoint_path, device):
+    graph_model = HarmonicGraphEncoder()
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    graph_model.load_state_dict(checkpoint)
+    graph_model.to(device)
+    return graph_model
+# end
+def load_BiLSTMModel(checkpoint_path, device):
+    bilstm_model = HarmonyBiLSTM()
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    bilstm_model.load_state_dict(checkpoint)
+    bilstm_model.to(device)
+    return bilstm_model
+# end
 
 def nucleus_token_by_token_generate(
         model,
