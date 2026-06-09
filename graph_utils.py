@@ -367,6 +367,9 @@ class MelodicHarmonization:
     # end make_bilstm_seq_of_segment
 # end class MelodicHarmonization
 
+# class StringMelodicHarmonization:
+#     def __init__
+
 def get_random_bar_chords_from_data(d):
     # get a random range of bars - at most 4
     bars_range = np.random.randint(1, 5)
