@@ -5,6 +5,7 @@ from copy import deepcopy
 import torch
 from torch_geometric.data import HeteroData
 from tqdm import tqdm
+import ast
 
 tokenizer = CSGridMLMTokenizer(
     fixed_length=80,
@@ -432,3 +433,81 @@ def get_random_bar_chords_from_data(d):
     data["event", "next", "event"].edge_attr = temporal_edge_attr
     return data
 # end get_random_bar_chords_from_data
+
+
+def graph_from_string(in_seq):
+    if 'b_' in in_seq:
+        bar_split = in_seq.split('b_')[1:]
+    else:
+        bar_split = [in_seq]
+    bars = []
+
+    for bs in bar_split:
+        chords_split = bs.split(';')
+        bar_chord_ids = []
+        bar_position_info = []
+        bar_melody_info = []
+        position_info = 0
+        bar_token_positions_info = []
+        bar_idx = 0
+        for i, cs in enumerate(chords_split):
+            melody_info = []
+            if '_@' in cs:
+                position_split = cs.split('_@')
+                chord_symbol = position_split[0]
+                if '_m' in position_split[1]:
+                    melody_split = position_split[1].split('_m')
+                    position_info = int(melody_split[0])
+                    melody_info = ast.literal_eval(melody_split[1])
+            elif '_m' in cs:
+                melody_split = position_split[1].split['_m']
+                chord_symbol = melody_split[0]
+                melody_info = ast.literal_eval(melody_split[1])
+            else:
+                chord_symbol = cs
+            if chord_symbol in tokenizer.vocab.keys():
+                print(f'{chord_symbol} in vocab as: {tokenizer.vocab[chord_symbol]}')
+                bar_chord_ids.append(tokenizer.vocab[chord_symbol])
+                bar_position_info.append(position_info)
+                bar_token_positions_info.append(position_info + bar_idx)
+                if '_@' not in cs:
+                    position_info += 2
+                bar_melody_info.append(melody_info)
+            else:
+                print(f'unrecognized chord symbol {chord_symbol}')
+        bar_idx += 1
+        current_bar = {
+            'chord_ids': bar_chord_ids,
+            'melody_pcs': bar_melody_info,
+            'chord_token_positions': bar_token_positions_info,
+            'bar_token_positions': bar_position_info
+        }
+        bars.append(current_bar)
+
+        bar_objects = make_bar_objects(bars)
+
+        m = MelodicHarmonization(bar_objects)
+
+        m.make_graph_of_segment(0,len(bar_objects))
+        m.make_bilstm_seq_of_segment(0,len(bar_objects))
+
+        return m
+# end graph_from_string
+
+def get_graph_embeddings_from_string_with_model(s, graph_model):
+    m = graph_from_string(s)
+    with torch.no_grad():
+        y_graph = graph_model(m.segment_graph)
+    return y_graph
+# end get_graph_embeddings_from_string_with_model
+
+def get_bilstm_embeddings_from_string_with_model(s, bilstm_model):
+    m = graph_from_string(s)
+    device = next(bilstm_model.parameters()).device
+    with torch.no_grad():
+        y_bilstm = bilstm_model(
+            m.segment_bilstm.unsqueeze(0).to(device), 
+            torch.tensor([m.segment_bilstm.shape[0]]).to(device)
+        )
+    return y_bilstm
+# end get_bilstm_embeddings_from_string_with_model
