@@ -138,7 +138,7 @@ class HarmonicGraphDataset(Dataset):
         data,
         tokenizer,
         model,
-        max_segment_bars=4
+        max_segment_bars=2
     ):
         self.data = data
         self.tokenizer = tokenizer

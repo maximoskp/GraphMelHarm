@@ -236,7 +236,7 @@ class MelodicHarmonization:
                 bar.print_info()
     # end print_info
 
-    def get_valid_bar_segment_range(self, max_length=4):
+    def get_valid_bar_segment_range(self, max_length=2):
         # get a random valid bar segment range of at most max_length bars
         bars_range = np.random.randint(1, max_length+1)
         bar_end = np.random.randint(bars_range, self.num_bars+1)
@@ -257,7 +257,7 @@ class MelodicHarmonization:
         # make a graph of the segment from bar_start to bar_end (exclusive)
         # using the bar_objects
         if bar_start < 0 or bar_end > self.num_bars or bar_start >= bar_end:
-            raise ValueError("Invalid bar range")
+            raise ValueError("Invalid bar range", bar_start, bar_end)
         self.segment_bar_objects = self.bar_objects[bar_start:bar_end]
         self.segment_bar_start = bar_start
         self.segment_bar_end = bar_end
@@ -341,7 +341,7 @@ class MelodicHarmonization:
                 if current_chord.root is not None and prev_chord.root is not None else 0
         # Return the computed attributes as a tensor
         return [
-            previous_time_positions,
+            # previous_time_positions,
             previous_root_retention,
             current_root_retention,
             common_pitch_class_ratio,
@@ -447,7 +447,7 @@ def graph_from_string(in_seq):
         bar_chord_ids = []
         bar_position_info = []
         bar_melody_info = []
-        position_info = 0
+        position_info = 2
         bar_token_positions_info = []
         bar_idx = 0
         for i, cs in enumerate(chords_split):
@@ -467,15 +467,19 @@ def graph_from_string(in_seq):
                 chord_symbol = cs
             if chord_symbol in tokenizer.vocab.keys():
                 print(f'{chord_symbol} in vocab as: {tokenizer.vocab[chord_symbol]}')
-                bar_chord_ids.append(tokenizer.vocab[chord_symbol])
-                bar_position_info.append(position_info)
-                bar_token_positions_info.append(position_info + bar_idx)
+                for _ in range(position_info):
+                    bar_chord_ids.append(tokenizer.vocab[chord_symbol])
+                    bar_position_info.append(position_info)
+                    # bar_token_positions_info.append(position_info + bar_idx)
+                    bar_token_positions_info.append(position_info)
+                    bar_melody_info.append(melody_info)
                 if '_@' not in cs:
                     position_info += 2
-                bar_melody_info.append(melody_info)
             else:
                 print(f'unrecognized chord symbol {chord_symbol}')
         bar_idx += 1
+        # print('bar_chord_ids: ', bar_chord_ids)
+        # print('bar_melody_info: ', bar_melody_info)
         current_bar = {
             'chord_ids': bar_chord_ids,
             'melody_pcs': bar_melody_info,
@@ -484,14 +488,14 @@ def graph_from_string(in_seq):
         }
         bars.append(current_bar)
 
-        bar_objects = make_bar_objects(bars)
+    bar_objects = make_bar_objects(bars)
 
-        m = MelodicHarmonization(bar_objects)
+    m = MelodicHarmonization(bar_objects)
 
-        m.make_graph_of_segment(0,len(bar_objects))
-        m.make_bilstm_seq_of_segment(0,len(bar_objects))
+    m.make_graph_of_segment(0,len(bar_objects))
+    m.make_bilstm_seq_of_segment(0,len(bar_objects))
 
-        return m
+    return m
 # end graph_from_string
 
 def get_graph_embeddings_from_string_with_model(s, graph_model):
@@ -511,3 +515,47 @@ def get_bilstm_embeddings_from_string_with_model(s, bilstm_model):
         )
     return y_bilstm
 # end get_bilstm_embeddings_from_string_with_model
+
+def compare_heterodata(g1, g2, tol=1e-6):
+    mismatches = []
+
+    if set(g1.node_types) != set(g2.node_types):
+        mismatches.append(f"node types differ: {set(g1.node_types)} vs {set(g2.node_types)}")
+
+    if set(g1.edge_types) != set(g2.edge_types):
+        mismatches.append(f"edge types differ: {set(g1.edge_types)} vs {set(g2.edge_types)}")
+
+    for ntype in g1.node_types:
+        attrs1 = set(g1[ntype].keys())
+        attrs2 = set(g2[ntype].keys())
+        if attrs1 != attrs2:
+            mismatches.append(f"node attrs for {ntype} differ: {attrs1} vs {attrs2}")
+        for attr in attrs1:
+            t1 = g1[ntype][attr]
+            t2 = g2[ntype][attr]
+            if t1.shape != t2.shape:
+                mismatches.append(f"{ntype}.{attr} shape differs: {t1.shape} vs {t2.shape}")
+            elif not torch.allclose(t1, t2, atol=tol, rtol=0):
+                mismatches.append(f"{ntype}.{attr} values differ")
+                idx = torch.nonzero(~torch.isclose(t1, t2, atol=tol, rtol=0), as_tuple=False)
+                mismatches.append(f" first diff {attr} at {idx[:5].tolist()}")
+                break
+
+    for etype in g1.edge_types:
+        attrs1 = set(g1[etype].keys())
+        attrs2 = set(g2[etype].keys())
+        if attrs1 != attrs2:
+            mismatches.append(f"edge attrs for {etype} differ: {attrs1} vs {attrs2}")
+        for attr in attrs1:
+            t1 = g1[etype][attr]
+            t2 = g2[etype][attr]
+            if t1.shape != t2.shape:
+                mismatches.append(f"{etype}.{attr} shape differs: {t1.shape} vs {t2.shape}")
+            elif not torch.allclose(t1, t2, atol=tol, rtol=0):
+                mismatches.append(f"{etype}.{attr} values differ")
+                idx = torch.nonzero(~torch.isclose(t1, t2, atol=tol, rtol=0), as_tuple=False)
+                mismatches.append(f" first diff {attr} at {idx[:5].tolist()}")
+                break
+
+    return mismatches
+# end compare_heterodata
