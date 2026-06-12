@@ -164,12 +164,9 @@ class HarmonicGraphEncoder(nn.Module):
         # Event projection
         # ----------------------------------------------------
 
-        # self.event_proj = nn.Linear(
-        #     1,
-        #     hidden_dim
-        # )
-        self.event_embedding = nn.Parameter(
-            torch.randn(1, hidden_dim)
+        self.event_proj = nn.Linear(
+            1,
+            hidden_dim
         )
 
         # ----------------------------------------------------
@@ -231,12 +228,8 @@ class HarmonicGraphEncoder(nn.Module):
         # EVENT FEATURES
         # ====================================================
 
-        # event_x = self.event_proj(
-        #     data["event"].x
-        # )
-        event_x = self.event_embedding.expand(
-            data["event"].num_nodes,
-            -1
+        event_x = self.event_proj(
+            data["event"].x
         )
 
         # ====================================================

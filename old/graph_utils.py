@@ -275,7 +275,7 @@ class MelodicHarmonization:
         # EVENT NODES
         # ============================================================
         num_events = 0
-        # event_features_list = []
+        event_features_list = []
         edge_index_source_list = []
         edge_index_target_list = []
         edge_attr_list = []
@@ -284,7 +284,7 @@ class MelodicHarmonization:
         prev_chord = None
         for i, bar in enumerate(self.segment_bar_objects):
             for j, chord in enumerate(bar.chord_objects):
-                # event_features_list.append([chord.bar_positions[0]])
+                event_features_list.append([chord.bar_positions[0]])
                 temporal_edge_index_list.append(num_events)
                 if prev_chord is not None:
                     temporal_edge_attr_list.append(self.get_event_edge_attributes(prev_chord, chord))
@@ -295,9 +295,8 @@ class MelodicHarmonization:
                 prev_chord = chord
                 num_events += 1
         # event features
-        # event_features = torch.tensor(event_features_list, dtype=torch.float)
-        # data["event"].x = event_features
-        data["event"].num_nodes = num_events
+        event_features = torch.tensor(event_features_list, dtype=torch.float)
+        data["event"].x = event_features
         # participation index
         edge_index = torch.tensor([edge_index_source_list, edge_index_target_list], dtype=torch.long)
         data["pitch", "participates", "event"].edge_index = edge_index
