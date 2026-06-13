@@ -298,6 +298,12 @@ class MelodicHarmonization:
         # event_features = torch.tensor(event_features_list, dtype=torch.float)
         # data["event"].x = event_features
         data["event"].num_nodes = num_events
+        event_features = torch.linspace(
+            0.0,
+            1.0,
+            num_events
+        ).unsqueeze(-1)
+        data["event"].x = event_features
         # participation index
         edge_index = torch.tensor([edge_index_source_list, edge_index_target_list], dtype=torch.long)
         data["pitch", "participates", "event"].edge_index = edge_index
