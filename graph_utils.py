@@ -19,22 +19,22 @@ tokenizer = CSGridMLMTokenizer(
 chord_features = GridMLM_tokenizers.CHORD_FEATURES
 chord_id_features = {tokenizer.vocab[k]: v for k, v in chord_features.items()}
 
-def append_graph_ready_object_to_dataset(ds):
+def append_graph_ready_object_to_dataset(ds, include_melody=False):
     new_ds = []
     for i in tqdm(range(len(ds))):
         # print(f"Processing dataset item {i+1}/{len(ds)}", end='\r')
         d = ds[i]
-        graph_ready_object = make_graph_ready_for_dataset_item(d, tokenizer)
+        graph_ready_object = make_graph_ready_for_dataset_item(d, tokenizer, include_melody=include_melody)
         d['graph_ready_object'] = graph_ready_object
         new_ds.append(d)
     return new_ds
 # end append_graph_ready_object_to_dataset
 
-def make_graph_ready_for_dataset_item(d, tokenizer):
+def make_graph_ready_for_dataset_item(d, tokenizer, include_melody=False):
     harmony_ids = d['harmony_ids']
     pianoroll = d['pianoroll']
     bars = bar_split(harmony_ids, pianoroll, tokenizer)
-    bar_objects = make_bar_objects(bars)
+    bar_objects = make_bar_objects(bars, include_melody=include_melody)
     return MelodicHarmonization(bar_objects)
 # end make_graph_ready_for_dataset_item
 
@@ -74,8 +74,12 @@ def bar_split(harmony_ids, pianoroll, tokenizer):
     return bars
 # end bar_split
 
-def make_bar_objects(bars):
+def make_bar_objects(bars, include_melody=False):
     bars_out = []
+    if include_melody:
+        ChordClass = ChordWithMelody
+    else:
+        ChordClass = Chord
     for bar in bars:
         chord_objects = []
         chord_ids = bar['chord_ids']
@@ -94,7 +98,7 @@ def make_bar_objects(bars):
                         tmp_melody_pcs.append(melody_pcs[i])
                         tmp_token_positions.append(chord_token_positions[i])
                     else:
-                        chord_objects.append(Chord(chord_ids[i-1], tmp_positions, tmp_melody_pcs, tmp_token_positions))
+                        chord_objects.append(ChordClass(chord_ids[i-1], tmp_positions, tmp_melody_pcs, tmp_token_positions))
                         tmp_positions = [i]
                         tmp_melody_pcs = [melody_pcs[i]]
                         tmp_token_positions = [chord_token_positions[i]]
@@ -103,7 +107,7 @@ def make_bar_objects(bars):
                     tmp_melody_pcs.append(melody_pcs[i])
                     tmp_token_positions.append(chord_token_positions[i])
             # end for
-            chord_objects.append(Chord(hid, tmp_positions, tmp_melody_pcs, tmp_token_positions))
+            chord_objects.append(ChordClass(hid, tmp_positions, tmp_melody_pcs, tmp_token_positions))
         bars_out.append(Bar(bar_token_positions, chord_objects))
     return bars_out
 # end make_bar_objects
@@ -124,6 +128,60 @@ class Bar:
 # end class Bar
 
 class Chord:
+    def __init__(self, chord_id, bar_positions, melody_pcs, token_positions):
+        self.chord_id = chord_id
+        self.bar_positions = bar_positions
+        self.melody_pcs = melody_pcs
+        self.token_positions = token_positions
+        self.pitch_classes = []
+        self.root = None
+        if self.chord_id in chord_id_features.keys():
+            self.get_chord_pitch_features()
+        else:
+            print(f'problem with chord_id: {chord_id}')
+            self.graph_features = None
+            self.bilstm_features = None
+    # end init
+
+    def get_chord_pitch_features(self):
+        c = deepcopy(chord_id_features[self.chord_id])
+        self.pitch_classes = c['pitch_classes']
+        self.pcs_map = {}
+        self.root = c['root']
+        # c is a CHORD_FEATURE dict with keys: 'quality', 'root', 'pitch_classes'
+        #
+        # returns a tensor of tensors (N, 8), where N is the number of pitches
+        # in the chord and 8 is the number of features
+        # (root, third, fifth, seventh, extension, chord_pitch (1), melody_pitch (0), offset_from_chord_start (0.0))
+        self.graph_features = torch.zeros((len(self.pitch_classes), 5), dtype=torch.float32)
+        self.bilstm_features = torch.zeros(12, dtype=torch.float32)
+        for i,p in enumerate(self.pitch_classes):
+            self.bilstm_features[p] = 1
+            self.pcs_map[p] = i
+            self.graph_features[i] = torch.tensor([
+                p == self.root,
+                (self.root + 4) % 12 == p or (self.root + 3) % 12 == p,
+                (self.root + 7) % 12 == p or (self.root + 6) % 12 == p,
+                (self.root + 10) % 12 == p or (self.root + 11) % 12 == p,
+                any((self.root + ext) % 12 == p for ext in [1,2,5,8,9])
+            ], dtype=torch.float32)
+    # end get_chord_pitch_features
+
+    def print_info(self):
+        print(f"Chord label: {tokenizer.ids_to_tokens[self.chord_id]}")
+        print(f"Pitch classes: {self.pitch_classes}")
+        print(f"Root: {self.root}")
+        print(f"Chord ID: {self.chord_id}")
+        print(f"Bar Positions: {self.bar_positions}")
+        print(f"Token Positions: {self.token_positions}")
+        if self.graph_features is not None:
+            print(f"Graph Features:\n{self.graph_features}")
+        if self.bilstm_features is not None:
+            print(f"BiLSTM Features\n{self.bilstm_features}")
+    # end print_info
+# end class Chord
+
+class ChordWithMelody:
     def __init__(self, chord_id, bar_positions, melody_pcs, token_positions):
         self.chord_id = chord_id
         self.bar_positions = bar_positions
@@ -203,7 +261,7 @@ class Chord:
         if self.bilstm_features is not None:
             print(f"BiLSTM Features\n{self.bilstm_features}")
     # end print_info
-# end class Chord
+# end class ChordWithMelody
 
 class MelodicHarmonization:
     def __init__(self, bar_objects):
@@ -540,13 +598,17 @@ def compare_heterodata(g1, g2, tol=1e-6):
         for attr in attrs1:
             t1 = g1[ntype][attr]
             t2 = g2[ntype][attr]
-            if t1.shape != t2.shape:
-                mismatches.append(f"{ntype}.{attr} shape differs: {t1.shape} vs {t2.shape}")
-            elif not torch.allclose(t1, t2, atol=tol, rtol=0):
-                mismatches.append(f"{ntype}.{attr} values differ")
-                idx = torch.nonzero(~torch.isclose(t1, t2, atol=tol, rtol=0), as_tuple=False)
-                mismatches.append(f" first diff {attr} at {idx[:5].tolist()}")
-                break
+            if hasattr(t1, '__len__'):
+                if t1.shape != t2.shape:
+                    mismatches.append(f"{ntype}.{attr} shape differs: {t1.shape} vs {t2.shape}")
+                elif not torch.allclose(t1, t2, atol=tol, rtol=0):
+                    mismatches.append(f"{ntype}.{attr} values differ")
+                    idx = torch.nonzero(~torch.isclose(t1, t2, atol=tol, rtol=0), as_tuple=False)
+                    mismatches.append(f" first diff {attr} at {idx[:5].tolist()}")
+                    break
+            else:
+                if t1 != t2:
+                    mismatches.append(f"{ntype}.{attr} values differs: {t1} vs {t2}")
 
     for etype in g1.edge_types:
         attrs1 = set(g1[etype].keys())

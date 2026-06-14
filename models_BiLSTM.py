@@ -10,7 +10,7 @@ from torch.nn.utils.rnn import (
 class HarmonyBiLSTM(nn.Module):
     def __init__(
         self,
-        input_dim=24,
+        input_dim=12,
         proj_dim=64,
         hidden_dim=128,
         num_layers=2,

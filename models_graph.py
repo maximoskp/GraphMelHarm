@@ -139,10 +139,11 @@ class HarmonicGraphEncoder(nn.Module):
 
     def __init__(self,
                  hidden_dim=64,
-                 output_dim=128):
+                 output_dim=128,
+                 participation_edge_dim=5):
 
         super().__init__()
-
+        
         self.register_buffer("pitch_ids", torch.arange(12))
         self.output_dim = output_dim
 
@@ -181,7 +182,7 @@ class HarmonicGraphEncoder(nn.Module):
         self.participation_mpnn = ParticipationMPNN(
             pitch_dim=hidden_dim,
             event_dim=hidden_dim,
-            edge_dim=8,
+            edge_dim=participation_edge_dim,
             hidden_dim=hidden_dim
         )
 

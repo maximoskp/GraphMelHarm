@@ -138,12 +138,14 @@ class HarmonicGraphDataset(Dataset):
         data,
         tokenizer,
         model,
-        max_segment_bars=2
+        max_segment_bars=2,
+        include_melody=False
     ):
         self.data = data
         self.tokenizer = tokenizer
         self.model = model
         self.max_segment_bars = max_segment_bars
+        self.include_melody = include_melody
     # end init
 
     def __len__(self):
@@ -191,7 +193,7 @@ class HarmonicGraphDataset(Dataset):
                 # re-make dataset item for constructing graph
                 d_recomposed = d.copy()
                 d_recomposed['harmony_ids'] = recomposed_harmony_ids.squeeze(0).cpu().numpy().tolist()
-                graph_ready_object = make_graph_ready_for_dataset_item(d_recomposed, self.tokenizer)
+                graph_ready_object = make_graph_ready_for_dataset_item(d_recomposed, self.tokenizer, self.include_melody)
                 d_recomposed['graph_ready_object'] = graph_ready_object
                 d_recomposed['graph_ready_object'].make_graph_of_segment(bar_start, bar_end)
                 recomposed_graph = d_recomposed['graph_ready_object'].segment_graph
@@ -208,7 +210,7 @@ class HarmonicGraphDataset(Dataset):
                 # re-make dataset item for constructing graph
                 d_random = d.copy()
                 d_random['harmony_ids'] = random_harmony_ids.squeeze(0).cpu().numpy().tolist()
-                graph_ready_object = make_graph_ready_for_dataset_item(d_random, self.tokenizer)
+                graph_ready_object = make_graph_ready_for_dataset_item(d_random, self.tokenizer, self.include_melody)
                 d_random['graph_ready_object'] = graph_ready_object
                 d_random['graph_ready_object'].make_graph_of_segment(bar_start, bar_end)
                 random_graph = d_random['graph_ready_object'].segment_graph
@@ -314,12 +316,14 @@ class HarmonicBiLSTMDataset(Dataset):
         data,
         tokenizer,
         model,
-        max_segment_bars=2
+        max_segment_bars=2,
+        include_melody=False
     ):
         self.data = data
         self.tokenizer = tokenizer
         self.model = model
         self.max_segment_bars = max_segment_bars
+        self.include_melody = include_melody
     # end init
 
     def __len__(self):
@@ -367,7 +371,7 @@ class HarmonicBiLSTMDataset(Dataset):
                 # re-make dataset item for constructing graph
                 d_recomposed = d.copy()
                 d_recomposed['harmony_ids'] = recomposed_harmony_ids.squeeze(0).cpu().numpy().tolist()
-                graph_ready_object = make_graph_ready_for_dataset_item(d_recomposed, self.tokenizer)
+                graph_ready_object = make_graph_ready_for_dataset_item(d_recomposed, self.tokenizer, self.include_melody)
                 d_recomposed['graph_ready_object'] = graph_ready_object
                 d_recomposed['graph_ready_object'].make_bilstm_seq_of_segment(bar_start, bar_end)
                 recomposed_bilstm = d_recomposed['graph_ready_object'].segment_bilstm
@@ -384,7 +388,7 @@ class HarmonicBiLSTMDataset(Dataset):
                 # re-make dataset item for constructing graph
                 d_random = d.copy()
                 d_random['harmony_ids'] = random_harmony_ids.squeeze(0).cpu().numpy().tolist()
-                graph_ready_object = make_graph_ready_for_dataset_item(d_random, self.tokenizer)
+                graph_ready_object = make_graph_ready_for_dataset_item(d_random, self.tokenizer, self.include_melody)
                 d_random['graph_ready_object'] = graph_ready_object
                 d_random['graph_ready_object'].make_bilstm_seq_of_segment(bar_start, bar_end)
                 random_bilstm = d_random['graph_ready_object'].segment_bilstm
