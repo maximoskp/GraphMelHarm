@@ -138,7 +138,7 @@ class HarmonicGraphDataset(Dataset):
         data,
         tokenizer,
         model,
-        max_segment_bars=2,
+        max_segment_bars=16,
         include_melody=False
     ):
         self.data = data
@@ -316,7 +316,7 @@ class HarmonicBiLSTMDataset(Dataset):
         data,
         tokenizer,
         model,
-        max_segment_bars=2,
+        max_segment_bars=16,
         include_melody=False
     ):
         self.data = data

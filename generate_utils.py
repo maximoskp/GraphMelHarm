@@ -215,15 +215,15 @@ def load_AttnFiLMSEModel(
     return transformer_model
 # end load_SE_FiLM
 
-def load_GraphModel(checkpoint_path, device):
-    graph_model = HarmonicGraphEncoder()
+def load_GraphModel(checkpoint_path, device, include_melody=False):
+    graph_model = HarmonicGraphEncoder(participation_edge_dim=5 if not include_melody else 8)
     checkpoint = torch.load(checkpoint_path, map_location=device)
     graph_model.load_state_dict(checkpoint)
     graph_model.to(device)
     return graph_model
 # end
-def load_BiLSTMModel(checkpoint_path, device):
-    bilstm_model = HarmonyBiLSTM()
+def load_BiLSTMModel(checkpoint_path, device, include_melody=False):
+    bilstm_model = HarmonyBiLSTM(input_dim=12 if not include_melody else 24)
     checkpoint = torch.load(checkpoint_path, map_location=device)
     bilstm_model.load_state_dict(checkpoint)
     bilstm_model.to(device)
@@ -339,19 +339,15 @@ def generate_files_with_nucleus(
         mxl_folder_out,
         midi_folder_out,
         name_suffix,
-        guidance_f_path = None,
         guidance_vec = None,
-        steering_vec = None,
-        steering_alpha = 1.0,
         use_constraints=False,
-        intertwine_bar_info=False, # no bar default
-        normalize_tonality=False,
+        intertwine_bar_info=True,
+        normalize_tonality=True,
         temperature=1.0,
         p=0.9,
-        unmasking_order='random',
+        unmasking_order='certain',
         create_gen=True,
-        create_real=False,
-        create_guide=False
+        create_real=False
     ):
     # we cannot have intertwine_bar_info == True and use_constraints == False
     # because bar information is passed through the constraints
@@ -375,28 +371,14 @@ def generate_files_with_nucleus(
     if intertwine_bar_info and not use_constraints:
         harmony_input[ harmony_input != tokenizer.bar_token_id ] = tokenizer.mask_token_id
     melody_grid = torch.FloatTensor( input_encoded['pianoroll'] ).reshape( 1, input_encoded['pianoroll'].shape[0], input_encoded['pianoroll'].shape[1] )
-    if guidance_f_path:
-        guide_encoded = tokenizer.encode(
-            guidance_f_path,
-            keep_durations=True,
-            normalize_tonality=normalize_tonality,
-        )
-        harmony_guide = torch.LongTensor(guide_encoded['harmony_ids']).reshape(1, len(guide_encoded['harmony_ids']))
-        # keep guide ground truth
-        harmony_guide_tokens = []
-        for t in harmony_guide[0].tolist():
-            harmony_guide_tokens.append( tokenizer.ids_to_tokens[t] )
-        guidance_vec = get_SE_embeddings_for_sequence(model, guide_encoded['pianoroll'], guide_encoded['harmony_ids']).unsqueeze(0)
     
     hidden = None
     if create_gen:
-        nucleus_generated_harmony, hidden = nucleus_token_by_token_generate(
+        nucleus_generated_harmony = nucleus_token_by_token_generate(
             model=model,
             melody_grid=melody_grid.to(model.device),
             guidance_vector=guidance_vec,
             mask_token_id=tokenizer.mask_token_id,
-            steering_vec = steering_vec,
-            steering_alpha = steering_alpha,
             temperature=temperature,
             pad_token_id=pad_token_id,      # token ID for <pad>
             nc_token_id=nc_token_id,       # token ID for <nc>
@@ -455,33 +437,11 @@ def generate_files_with_nucleus(
             midi_file_name = os.path.join(midi_folder_out, f'real_{name_suffix}' + '.mid')
             save_harmonized_score(real_score, out_path=midi_file_name)
         # os.system(f'QT_QPA_PLATFORM=offscreen mscore -o {midi_file_name} {mxl_file_name}')
-    if create_guide and guidance_f_path:
-        guide_score = overlay_generated_harmony(
-            guide_encoded['melody_part'],
-            harmony_guide_tokens,
-            guide_encoded['ql_per_quantum'],
-            guide_encoded['skip_steps']
-        )
-        
-        if normalize_tonality:
-            guide_score = transpose_score(guide_score, guide_encoded['back_interval'])
-        if mxl_folder_out is not None:
-            os.makedirs(mxl_folder_out, exist_ok=True)
-            mxl_file_name = os.path.join(mxl_folder_out, f'guide_{name_suffix}' + '.mxl')
-            save_harmonized_score(guide_score, out_path=mxl_file_name)
-        if midi_folder_out is not None:
-            os.makedirs(midi_folder_out, exist_ok=True)
-            midi_file_name = os.path.join(midi_folder_out, f'guide_{name_suffix}' + '.mid')
-            save_harmonized_score(guide_score, out_path=midi_file_name)
-        # os.system(f'QT_QPA_PLATFORM=offscreen mscore -o {midi_file_name} {mxl_file_name}')
-    else:
-        harmony_guide_tokens = None
 
     return {
         'gen_output_tokens': gen_output_tokens,
         'gen_output_token_ids': nucleus_generated_harmony,
         'harmony_real_tokens': harmony_real_tokens,
-        'harmony_guide_tokens': harmony_guide_tokens,
         'gen_score': gen_score,
         'real_score': real_score,
         'guide_score': guide_score,

@@ -742,6 +742,26 @@ def validation_graph_loop(
                     batch['random_harmony_ids'].view(-1).to(device)
                 )
 
+                # mask = batch['mask_token_positions'].to(device)
+                
+                # real_targets = batch['real_harmony_ids'].to(device)
+                # real_logits_loss = logits_loss_fn(
+                #     real_logits[mask],
+                #     real_targets[mask]
+                # )
+
+                # recomposed_targets = batch['recomposed_harmony_ids'].to(device)
+                # recomposed_logits_loss = logits_loss_fn(
+                #     recomposed_logits[mask],
+                #     recomposed_targets[mask]
+                # )
+
+                # random_targets = batch['random_harmony_ids'].to(device)
+                # random_logits_loss = logits_loss_fn(
+                #     random_logits[mask],
+                #     random_targets[mask]
+                # )
+
                 loss = real_logits_loss + recomposed_logits_loss + random_logits_loss
 
                 # update loss and accuracy
@@ -908,6 +928,26 @@ def train_graph_loop(
                     batch['random_harmony_ids'].view(-1).to(device)
                 )
 
+                # mask = batch['mask_token_positions'].to(device)
+                
+                # real_targets = batch['real_harmony_ids'].to(device)
+                # real_logits_loss = logits_loss_fn(
+                #     real_logits[mask],
+                #     real_targets[mask]
+                # )
+
+                # recomposed_targets = batch['recomposed_harmony_ids'].to(device)
+                # recomposed_logits_loss = logits_loss_fn(
+                #     recomposed_logits[mask],
+                #     recomposed_targets[mask]
+                # )
+
+                # random_targets = batch['random_harmony_ids'].to(device)
+                # random_logits_loss = logits_loss_fn(
+                #     random_logits[mask],
+                #     random_targets[mask]
+                # )
+
                 optimizer.zero_grad()
                 loss = real_logits_loss + recomposed_logits_loss + random_logits_loss
                 loss.backward()
@@ -1061,6 +1101,26 @@ def validation_bilstm_loop(
                     random_logits.view(-1, random_logits.size(-1)),
                     batch['random_harmony_ids'].view(-1).to(device)
                 )
+
+                # mask = batch['mask_token_positions'].to(device)
+                
+                # real_targets = batch['real_harmony_ids'].to(device)
+                # real_logits_loss = logits_loss_fn(
+                #     real_logits[mask],
+                #     real_targets[mask]
+                # )
+
+                # recomposed_targets = batch['recomposed_harmony_ids'].to(device)
+                # recomposed_logits_loss = logits_loss_fn(
+                #     recomposed_logits[mask],
+                #     recomposed_targets[mask]
+                # )
+
+                # random_targets = batch['random_harmony_ids'].to(device)
+                # random_logits_loss = logits_loss_fn(
+                #     random_logits[mask],
+                #     random_targets[mask]
+                # )
 
                 loss = real_logits_loss + recomposed_logits_loss + random_logits_loss
 
@@ -1227,6 +1287,26 @@ def train_bilstm_loop(
                     random_logits.view(-1, random_logits.size(-1)),
                     batch['random_harmony_ids'].view(-1).to(device)
                 )
+
+                # mask = batch['mask_token_positions'].to(device)
+
+                # real_targets = batch['real_harmony_ids'].to(device)
+                # real_logits_loss = logits_loss_fn(
+                #     real_logits[mask],
+                #     real_targets[mask]
+                # )
+
+                # recomposed_targets = batch['recomposed_harmony_ids'].to(device)
+                # recomposed_logits_loss = logits_loss_fn(
+                #     recomposed_logits[mask],
+                #     recomposed_targets[mask]
+                # )
+
+                # random_targets = batch['random_harmony_ids'].to(device)
+                # random_logits_loss = logits_loss_fn(
+                #     random_logits[mask],
+                #     random_targets[mask]
+                # )
 
                 optimizer.zero_grad()
                 loss = real_logits_loss + recomposed_logits_loss + random_logits_loss

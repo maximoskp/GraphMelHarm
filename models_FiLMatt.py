@@ -94,12 +94,22 @@ class MultiHeadAttentionWithAttnFiLM(nn.Module):
             for _ in range(num_heads)
         ])
 
+        self.v_films = nn.ModuleList([
+            IdCenteredFiLM(guidance_dim, self.head_dim)
+            for _ in range(num_heads)
+        ])
+
         self.dropout = nn.Dropout(dropout)
 
         # storage
         self.last_pre_film_scores = None
         self.last_post_film_scores = None
         self.last_attention_probs = None
+
+        # v gate
+        self.v_film_scale = nn.Parameter(
+            torch.tensor(0.0)
+        )
     # end init
 
     def forward(
@@ -146,21 +156,29 @@ class MultiHeadAttentionWithAttnFiLM(nn.Module):
 
         q_heads = []
         k_heads = []
+        v_heads = []
 
         for h in range(self.num_heads):
 
             q_h = Q[:, h:h+1]
             k_h = K[:, h:h+1]
+            v_h = V[:, h:h+1]
 
             if z_g is not None:
                 q_h = self.q_films[h](q_h, z_g)
                 k_h = self.k_films[h](k_h, z_g)
+                # v_h = self.v_films[h](v_h, z_g)
+                v_mod = self.v_films[h](v_h, z_g)
+                scale = torch.tanh(self.v_film_scale)
+                v_h = v_h + scale * (v_mod - v_h)
 
             q_heads.append(q_h)
             k_heads.append(k_h)
+            v_heads.append(v_h)
 
         Q_film = torch.cat(q_heads, dim=1)
         K_film = torch.cat(k_heads, dim=1)
+        V_film = torch.cat(v_heads, dim=1)
 
         # =====================================================
         # POST-FILM SCORES
@@ -190,7 +208,8 @@ class MultiHeadAttentionWithAttnFiLM(nn.Module):
         attn = F.softmax(scores, dim=-1)
         attn = self.dropout(attn)
 
-        out = torch.matmul(attn, V)
+        # out = torch.matmul(attn, V)
+        out = torch.matmul(attn, V_film)
 
         # -----------------------------------------------------
         # merge heads

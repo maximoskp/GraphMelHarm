@@ -500,7 +500,7 @@ def get_random_bar_chords_from_data(d):
 # end get_random_bar_chords_from_data
 
 
-def graph_from_string(in_seq):
+def graph_from_string(in_seq, include_melody=False):
     if 'b_' in in_seq:
         bar_split = in_seq.split('b_')[1:]
     else:
@@ -553,7 +553,7 @@ def graph_from_string(in_seq):
         }
         bars.append(current_bar)
 
-    bar_objects = make_bar_objects(bars)
+    bar_objects = make_bar_objects(bars, include_melody=include_melody)
 
     m = MelodicHarmonization(bar_objects)
 
@@ -563,15 +563,15 @@ def graph_from_string(in_seq):
     return m
 # end graph_from_string
 
-def get_graph_embeddings_from_string_with_model(s, graph_model):
-    m = graph_from_string(s)
+def get_graph_embeddings_from_string_with_model(s, graph_model, include_melody=False):
+    m = graph_from_string(s, include_melody=include_melody)
     with torch.no_grad():
         y_graph = graph_model(m.segment_graph)
     return y_graph
 # end get_graph_embeddings_from_string_with_model
 
-def get_bilstm_embeddings_from_string_with_model(s, bilstm_model):
-    m = graph_from_string(s)
+def get_bilstm_embeddings_from_string_with_model(s, bilstm_model, include_melody=False):
+    m = graph_from_string(s, include_melody=include_melody)
     device = next(bilstm_model.parameters()).device
     with torch.no_grad():
         y_bilstm = bilstm_model(
