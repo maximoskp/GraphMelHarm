@@ -26,36 +26,250 @@ def sinusoidal_positional_encoding(seq_len, d_model, device):
 # end sinusoidal_positional_encoding
 
 # ============================================================
-# Id-centered FiLM
+# HyperGuide
 # ============================================================
 
-class IdCenteredFiLM(nn.Module):
+class HyperGuide(nn.Module):
 
-    def __init__(self, guidance_dim, head_dim):
+    def __init__(
+        self,
+        guidance_dim,
+        num_layers,
+        num_heads,
+        head_dim,
+        rank=8,
+        layer_emb_dim=16,
+        head_emb_dim=16,
+        adapter_dim=32,
+        hidden_dim=128
+    ):
         super().__init__()
 
-        self.gamma_proj = nn.Linear(guidance_dim, head_dim)
-        self.beta_proj = nn.Linear(guidance_dim, head_dim)
+        self.head_dim = head_dim
+        self.rank = rank
+        self.adapter_dim = adapter_dim
 
-        # identity-centered init
+        self.layer_embedding = nn.Embedding(
+            num_layers,
+            layer_emb_dim
+        )
+
+        self.head_embedding = nn.Embedding(
+            num_heads,
+            head_emb_dim
+        )
+
+        input_dim = (
+            guidance_dim
+            + layer_emb_dim
+            + head_emb_dim
+        )
+
+        self.mlp = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU()
+        )
+
+        self.gamma_proj = nn.Linear(
+            hidden_dim,
+            head_dim
+        )
+
+        self.beta_proj = nn.Linear(
+            hidden_dim,
+            head_dim
+        )
+
+        self.adapter_proj = nn.Linear(
+            hidden_dim,
+            adapter_dim
+        )
+
+        # identity initialization
+
         nn.init.zeros_(self.gamma_proj.weight)
         nn.init.zeros_(self.gamma_proj.bias)
 
         nn.init.zeros_(self.beta_proj.weight)
         nn.init.zeros_(self.beta_proj.bias)
+
+        nn.init.zeros_(self.adapter_proj.weight)
+        nn.init.zeros_(self.adapter_proj.bias)
     # end init
 
-    def forward(self, x, z_g):
-        delta_gamma = self.gamma_proj(z_g)
-        beta = self.beta_proj(z_g)
+    def forward(
+        self,
+        z_g,
+        layer_idx,
+        head_idx
+    ):
 
-        delta_gamma = delta_gamma[:, None, None, :]
+        B = z_g.shape[0]
+
+        layer_ids = torch.full(
+            (B,),
+            layer_idx,
+            device=z_g.device,
+            dtype=torch.long
+        )
+
+        head_ids = torch.full(
+            (B,),
+            head_idx,
+            device=z_g.device,
+            dtype=torch.long
+        )
+
+        l_emb = self.layer_embedding(layer_ids)
+        h_emb = self.head_embedding(head_ids)
+
+        x = torch.cat(
+            [
+                z_g,
+                l_emb,
+                h_emb
+            ],
+            dim=-1
+        )
+
+        h = self.mlp(x)
+
+        gamma = self.gamma_proj(h)
+        beta = self.beta_proj(h)
+        adapter_code = self.adapter_proj(h)
+
+        return gamma, beta, adapter_code
+    # end forward
+# end HyperGuide
+
+# ============================================================
+# LoRA adapter decoder
+# ============================================================
+
+class AdapterDecoder(nn.Module):
+
+    def __init__(
+        self,
+        adapter_dim,
+        head_dim,
+        rank
+    ):
+        super().__init__()
+
+        self.head_dim = head_dim
+        self.rank = rank
+
+        self.A_proj = nn.Linear(
+            adapter_dim,
+            rank * head_dim
+        )
+
+        self.B_proj = nn.Linear(
+            adapter_dim,
+            head_dim * rank
+        )
+
+        nn.init.zeros_(self.A_proj.weight)
+        nn.init.zeros_(self.A_proj.bias)
+
+        nn.init.zeros_(self.B_proj.weight)
+        nn.init.zeros_(self.B_proj.bias)
+    # end init
+
+    def forward(
+        self,
+        adapter_code
+    ):
+
+        B = adapter_code.shape[0]
+
+        A = self.A_proj(
+            adapter_code
+        ).view(
+            B,
+            self.rank,
+            self.head_dim
+        )
+
+        Bmat = self.B_proj(
+            adapter_code
+        ).view(
+            B,
+            self.head_dim,
+            self.rank
+        )
+
+        return A, Bmat
+    # end forward
+# end AdapterDecoder
+
+# ============================================================
+# HyperLoRAFiLM
+# ============================================================
+
+class HyperLoRAFiLM(nn.Module):
+    def __init__(
+        self,
+        hyperguide,
+        adapter_decoder,
+        layer_idx,
+        head_idx
+    ):
+        super().__init__()
+
+        self.hyperguide = hyperguide
+
+        self.adapter_decoder = adapter_decoder
+
+        self.layer_idx = layer_idx
+        self.head_idx = head_idx
+    # end init
+
+    def forward(
+        self,
+        x,
+        z_g
+    ):
+        gamma, beta, code = self.hyperguide(
+            z_g,
+            self.layer_idx,
+            self.head_idx
+        )
+
+        A, Bmat = self.adapter_decoder(
+            code
+        )
+
+        gamma = gamma[:, None, None, :]
         beta = beta[:, None, None, :]
 
-        return (1.0 + delta_gamma) * x + beta
-    # end forward
-# end class IdCenteredFiLM
+        #
+        # x
+        #
+        # [B,1,T,D]
+        #
 
+        low_rank = torch.einsum(
+            "brd,bhtd->bhtr",
+            A,
+            x
+        )
+
+        low_rank = torch.einsum(
+            "bdr,bhtr->bhtd",
+            Bmat,
+            low_rank
+        )
+
+        return (
+            x
+            + gamma * low_rank
+            + beta
+        )
+    # end init
+# end HyperLoRAFiLM
 
 # ============================================================
 # Attention with Id-centered FiLM
@@ -68,6 +282,13 @@ class MultiHeadAttentionWithAttnFiLM(nn.Module):
         d_model,
         num_heads,
         guidance_dim,
+        layer_idx,
+        hyper_q,
+        hyper_k,
+        hyper_v,
+        decoder_q,
+        decoder_k,
+        decoder_v,
         dropout=0.1
     ):
         super().__init__()
@@ -78,46 +299,45 @@ class MultiHeadAttentionWithAttnFiLM(nn.Module):
         self.num_heads = num_heads
         self.head_dim = d_model // num_heads
 
-        self.q_proj = nn.Linear(d_model, d_model)
-        self.k_proj = nn.Linear(d_model, d_model)
-        self.v_proj = nn.Linear(d_model, d_model)
+        # self.q_proj = nn.Linear(d_model, d_model)
+        # self.k_proj = nn.Linear(d_model, d_model)
+        # self.v_proj = nn.Linear(d_model, d_model)
 
-        self.out_proj = nn.Linear(d_model, d_model)
+        # self.out_proj = nn.Linear(d_model, d_model)
 
-        self.q_films = nn.ModuleList([
-            IdCenteredFiLM(guidance_dim, self.head_dim)
-            for _ in range(num_heads)
+        # self.hyper_q = hyper_q
+        # self.hyper_k = hyper_k
+        # self.hyper_v = hyper_v
+
+        # self.decoder_q = decoder_q
+        # self.decoder_k = decoder_k
+        # self.decoder_v = decoder_v
+
+        # self.layer_idx = layer_idx
+
+        self.hyper_lora_q = nn.ModuleList([
+            HyperLoRAFiLM(hyper_q, decoder_q, layer_idx, head_idx)
+            for head_idx in range(num_heads)
         ])
 
-        self.k_films = nn.ModuleList([
-            IdCenteredFiLM(guidance_dim, self.head_dim)
-            for _ in range(num_heads)
+        self.hyper_lora_k = nn.ModuleList([
+            HyperLoRAFiLM(hyper_k, decoder_k, layer_idx, head_idx)
+            for head_idx in range(num_heads)
         ])
 
-        self.v_films = nn.ModuleList([
-            IdCenteredFiLM(guidance_dim, self.head_dim)
-            for _ in range(num_heads)
+        self.hyper_lora_v = nn.ModuleList([
+            HyperLoRAFiLM(hyper_v, decoder_v, layer_idx, head_idx)
+            for head_idx in range(num_heads)
         ])
 
         self.dropout = nn.Dropout(dropout)
-
-        # storage
-        self.last_pre_film_scores = None
-        self.last_post_film_scores = None
-        self.last_attention_probs = None
-
-        # v gate
-        self.v_film_scale = nn.Parameter(
-            torch.tensor(0.0)
-        )
     # end init
 
     def forward(
         self,
         x,
         z_g=None,
-        attn_mask=None,
-        return_attn=False
+        attn_mask=None
     ):
         B, T, D = x.shape
 
@@ -165,12 +385,21 @@ class MultiHeadAttentionWithAttnFiLM(nn.Module):
             v_h = V[:, h:h+1]
 
             if z_g is not None:
-                q_h = self.q_films[h](q_h, z_g)
-                k_h = self.k_films[h](k_h, z_g)
-                # v_h = self.v_films[h](v_h, z_g)
-                v_mod = self.v_films[h](v_h, z_g)
-                scale = torch.tanh(self.v_film_scale)
-                v_h = v_h + scale * (v_mod - v_h)
+                q_h = self.hyper_lora_q(
+                q_h,
+                z_g,
+                h
+            )
+            k_h = self.hyper_lora_k(
+                k_h,
+                z_g,
+                h
+            )
+            v_h = self.hyper_lora_v(
+                v_h,
+                z_g,
+                h
+            )
 
             q_heads.append(q_h)
             k_heads.append(k_h)
@@ -219,17 +448,7 @@ class MultiHeadAttentionWithAttnFiLM(nn.Module):
         out = out.view(B, T, D)
 
         out = self.out_proj(out)
-
-        # -----------------------------------------------------
-        # optional storage
-        # -----------------------------------------------------
-
-        if return_attn:
-
-            self.last_pre_film_scores = pre_scores.detach()
-            self.last_post_film_scores = post_scores.detach()
-            self.last_attention_probs = attn.detach()
-
+        
         return out
     # end forward
 # end class MultiHeadAttentionWithAttnFiLM
@@ -247,14 +466,28 @@ class TransformerBlockWithAttnFiLM(nn.Module):
         num_heads,
         ff_dim,
         guidance_dim,
+        layer_idx,
+        hyper_q,
+        hyper_k,
+        hyper_v,
+        decoder_q,
+        decoder_k,
+        decoder_v,
         dropout=0.1
     ):
         super().__init__()
 
         self.attn = MultiHeadAttentionWithAttnFiLM(
-            d_model=d_model,
-            num_heads=num_heads,
-            guidance_dim=guidance_dim,
+            d_model,
+            num_heads,
+            guidance_dim,
+            layer_idx,
+            hyper_q,
+            hyper_k,
+            hyper_v,
+            decoder_q,
+            decoder_k,
+            decoder_v,
             dropout=dropout
         )
 
@@ -302,8 +535,7 @@ class TransformerBlockWithAttnFiLM(nn.Module):
 # Single Encoder Model
 # ============================================================
 
-class AttnFiLMSEModel(nn.Module):
-
+class LoRAFiLMSEModel(nn.Module):
     def __init__(
         self,
         chord_vocab_size,
@@ -360,6 +592,53 @@ class AttnFiLMSEModel(nn.Module):
         self.register_buffer('full_pos', full_pos)
 
         # -----------------------------------------------------
+        # hypernetworks
+        # -----------------------------------------------------
+
+        self.hyper_q = HyperGuide(
+            guidance_dim,
+            num_layers,
+            nhead,
+            d_model // nhead
+        )
+
+        self.hyper_k = HyperGuide(
+            guidance_dim,
+            num_layers,
+            nhead,
+            d_model // nhead
+        )
+
+        self.hyper_v = HyperGuide(
+            guidance_dim,
+            num_layers,
+            nhead,
+            d_model // nhead
+        )
+
+        # -----------------------------------------------------
+        # adapter decoders
+        # -----------------------------------------------------
+
+        self.decoder_q = AdapterDecoder(
+            32,
+            d_model // nhead,
+            rank=8
+        )
+
+        self.decoder_k = AdapterDecoder(
+            32,
+            d_model // nhead,
+            rank=8
+        )
+
+        self.decoder_v = AdapterDecoder(
+            32,
+            d_model // nhead,
+            rank=8
+        )
+
+        # -----------------------------------------------------
         # transformer blocks
         # -----------------------------------------------------
 
@@ -369,9 +648,16 @@ class AttnFiLMSEModel(nn.Module):
                 num_heads=nhead,
                 ff_dim=dim_feedforward,
                 guidance_dim=guidance_dim,
+                layer_idx=layer_idx,
+                hyper_q=self.hyper_q,
+                hyper_k=self.hyper_k,
+                hyper_v=self.hyper_v,
+                decoder_q=self.decoder_q,
+                decoder_k=self.decoder_k,
+                decoder_v=self.decoder_v,
                 dropout=dropout
             )
-            for _ in range(num_layers)
+            for layer_idx in range(num_layers)
         ])
 
         self.input_norm = nn.LayerNorm(d_model)
@@ -536,5 +822,4 @@ class AttnFiLMSEModel(nn.Module):
         for param in self.parameters():
             param.requires_grad = True
     # end unfreeze_all
-
-# end class AttnFiLMSEModel
+# end class LoRAFiLMSEModel

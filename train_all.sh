@@ -8,9 +8,9 @@
 # List of Python scripts with their respective arguments
 scripts=(
     # "train_graph.py -m 0 -g 0 -e 50 -l 1e-4 -b 16"
-    # "train_bilstm.py -m 0 -g 0 -e 50 -l 1e-4 -b 16"
+    "train_bilstm.py -m 0 -g 0 -e 50 -l 1e-4 -b 16"
     # "train_graph.py -m 1 -g 0 -e 50 -l 1e-4 -b 16"
-    "train_bilstm.py -m 1 -g 0 -e 50 -l 1e-4 -b 16"
+    # "train_bilstm.py -m 1 -g 0 -e 50 -l 1e-4 -b 16"
 )
 
 # Name of the conda environment
