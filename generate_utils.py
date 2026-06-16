@@ -6,6 +6,7 @@ import mir_eval
 import numpy as np
 from copy import deepcopy
 from models_FiLMatt import AttnFiLMSEModel
+from models_LoRAFiLM import LoRAFiLMSEModel
 from models_graph import HarmonicGraphEncoder
 from models_BiLSTM import HarmonyBiLSTM
 import os
@@ -214,6 +215,33 @@ def load_AttnFiLMSEModel(
     transformer_model.eval()
     return transformer_model
 # end load_SE_FiLM
+
+def load_LoRAFiLMSEModel(
+        tokenizer,
+        device,
+        guidance_dim=128,
+        d_model=512,
+        checkpoint_path=None,
+    ):
+    transformer_model = LoRAFiLMSEModel(
+        chord_vocab_size=len(tokenizer.vocab),
+        guidance_dim=guidance_dim,
+        device=device,
+        d_model=d_model,
+        nhead=8,
+        num_layers=8,
+        grid_length=80,
+        pianoroll_dim=tokenizer.pianoroll_dim,
+    )
+    if checkpoint_path is not None:
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+    else:
+        checkpoint = torch.load(f'saved_models/LoRAFiLM_SE/pretrained_epoch203_nvis2.pt', map_location=device)
+    transformer_model.load_state_dict(checkpoint)
+    transformer_model.to(device)
+    transformer_model.eval()
+    return transformer_model
+# end load_LoRAFiLMSEModel
 
 def load_GraphModel(checkpoint_path, device, include_melody=False):
     graph_model = HarmonicGraphEncoder(participation_edge_dim=5 if not include_melody else 8)
