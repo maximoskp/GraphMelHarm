@@ -225,6 +225,10 @@ class HyperLoRAFiLM(nn.Module):
 
         self.layer_idx = layer_idx
         self.head_idx = head_idx
+
+        self.adapter_scale = nn.Parameter(
+            torch.tensor(0.0)
+        )
     # end init
 
     def forward(
@@ -263,10 +267,15 @@ class HyperLoRAFiLM(nn.Module):
             low_rank
         )
 
+        scale = torch.tanh(
+            self.adapter_scale
+        )
+
         return (
             x
-            + gamma * low_rank
-            + beta
+            + scale * (
+                gamma * low_rank + beta
+            )
         )
     # end init
 # end HyperLoRAFiLM
@@ -299,21 +308,11 @@ class MultiHeadAttentionWithAttnFiLM(nn.Module):
         self.num_heads = num_heads
         self.head_dim = d_model // num_heads
 
-        # self.q_proj = nn.Linear(d_model, d_model)
-        # self.k_proj = nn.Linear(d_model, d_model)
-        # self.v_proj = nn.Linear(d_model, d_model)
+        self.q_proj = nn.Linear(d_model, d_model)
+        self.k_proj = nn.Linear(d_model, d_model)
+        self.v_proj = nn.Linear(d_model, d_model)
 
-        # self.out_proj = nn.Linear(d_model, d_model)
-
-        # self.hyper_q = hyper_q
-        # self.hyper_k = hyper_k
-        # self.hyper_v = hyper_v
-
-        # self.decoder_q = decoder_q
-        # self.decoder_k = decoder_k
-        # self.decoder_v = decoder_v
-
-        # self.layer_idx = layer_idx
+        self.out_proj = nn.Linear(d_model, d_model)
 
         self.hyper_lora_q = nn.ModuleList([
             HyperLoRAFiLM(hyper_q, decoder_q, layer_idx, head_idx)
@@ -385,21 +384,18 @@ class MultiHeadAttentionWithAttnFiLM(nn.Module):
             v_h = V[:, h:h+1]
 
             if z_g is not None:
-                q_h = self.hyper_lora_q(
-                q_h,
-                z_g,
-                h
-            )
-            k_h = self.hyper_lora_k(
-                k_h,
-                z_g,
-                h
-            )
-            v_h = self.hyper_lora_v(
-                v_h,
-                z_g,
-                h
-            )
+                q_h = self.hyper_lora_q[h](
+                    q_h,
+                    z_g
+                )
+                k_h = self.hyper_lora_k[h](
+                    k_h,
+                    z_g
+                )
+                v_h = self.hyper_lora_v[h](
+                    v_h,
+                    z_g
+                )
 
             q_heads.append(q_h)
             k_heads.append(k_h)
@@ -508,14 +504,12 @@ class TransformerBlockWithAttnFiLM(nn.Module):
         self,
         x,
         z_g=None,
-        attn_mask=None,
-        return_attn=False
+        attn_mask=None
     ):
         attn_out = self.attn(
             x=x,
             z_g=z_g,
-            attn_mask=attn_mask,
-            return_attn=return_attn
+            attn_mask=attn_mask
         )
 
         x = x + self.dropout(attn_out)
@@ -678,8 +672,7 @@ class LoRAFiLMSEModel(nn.Module):
         melody_grid,
         harmony_tokens=None,
         z_g=None,
-        attn_mask=None,
-        return_attn=False
+        attn_mask=None
     ):
         B = melody_grid.size(0)
 
@@ -739,8 +732,7 @@ class LoRAFiLMSEModel(nn.Module):
             x = layer(
                 x,
                 z_g=z_g,
-                attn_mask=attn_mask,
-                return_attn=return_attn
+                attn_mask=attn_mask
             )
 
         x = self.output_norm(x)
@@ -753,36 +745,8 @@ class LoRAFiLMSEModel(nn.Module):
             x[:, -self.grid_length:, :]
         )
 
-        if return_attn:
-            return harmony_logits, self.get_attention_maps()
-
         return harmony_logits
     # end forward
-
-    # =========================================================
-    # attention retrieval
-    # =========================================================
-
-    def get_attention_maps(self):
-
-        attn_data = []
-
-        for layer in self.layers:
-
-            attn_data.append({
-
-                "pre_film_scores":
-                    layer.attn.last_pre_film_scores,
-
-                "post_film_scores":
-                    layer.attn.last_post_film_scores,
-
-                "attention_probs":
-                    layer.attn.last_attention_probs
-            })
-
-        return attn_data
-    # end get_attention_maps
 
     # =========================================================
     # Freeze and Unfreeze
@@ -791,31 +755,35 @@ class LoRAFiLMSEModel(nn.Module):
     def freeze_base(self):
         for param in self.parameters():
             param.requires_grad = False
-        for layer in self.layers:
-            for attn in layer.attn.q_films:
-                for param in attn.parameters():
-                    param.requires_grad = True
-            for attn in layer.attn.k_films:
-                for param in attn.parameters():
-                    param.requires_grad = True
-            for attn in layer.attn.v_films:
-                for param in attn.parameters():
-                    param.requires_grad = True
+            for param in self.hyper_q.parameters():
+                param.requires_grad = True
+            for param in self.hyper_k.parameters():
+                param.requires_grad = True
+            for param in self.hyper_v.parameters():
+                param.requires_grad = True
+            for param in self.decoder_q.parameters():
+                param.requires_grad = True
+            for param in self.decoder_k.parameters():
+                param.requires_grad = True
+            for param in self.decoder_v.parameters():
+                param.requires_grad = True
     # end freeze_base
 
     def freeze_FiLM(self):
         for param in self.parameters():
             param.requires_grad = True
-        for layer in self.layers:
-            for attn in layer.attn.q_films:
-                for param in attn.parameters():
-                    param.requires_grad = False
-            for attn in layer.attn.k_films:
-                for param in attn.parameters():
-                    param.requires_grad = False
-            for attn in layer.attn.v_films:
-                for param in attn.parameters():
-                    param.requires_grad = False
+            for param in self.hyper_q.parameters():
+                param.requires_grad = False
+            for param in self.hyper_k.parameters():
+                param.requires_grad = False
+            for param in self.hyper_v.parameters():
+                param.requires_grad = False
+            for param in self.decoder_q.parameters():
+                param.requires_grad = False
+            for param in self.decoder_k.parameters():
+                param.requires_grad = False
+            for param in self.decoder_v.parameters():
+                param.requires_grad = False
     # end freeze_base
 
     def unfreeze_all(self):

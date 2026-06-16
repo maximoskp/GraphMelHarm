@@ -449,8 +449,7 @@ def validation_curriculum_loop(curriculum_type, model, valloader, mask_token_id,
                     melody_grid.to(device),
                     harmony_input.to(device),
                     None,
-                    None,
-                    False
+                    None
                 )
 
                 # Compute loss only on masked tokens
@@ -591,8 +590,7 @@ def train_with_curriculum(
                     melody_grid.to(device),
                     harmony_input.to(device),
                     None,
-                    None,
-                    False
+                    None
                 )
 
                 # Compute loss only on masked tokens
