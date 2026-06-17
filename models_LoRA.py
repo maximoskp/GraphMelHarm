@@ -29,39 +29,142 @@ def sinusoidal_positional_encoding(seq_len, d_model, device):
 # Id-centered FiLM
 # ============================================================
 
-class IdCenteredFiLM(nn.Module):
+class IdLoRA(nn.Module):
 
-    def __init__(self, guidance_dim, head_dim):
+    def __init__(
+        self,
+        guidance_dim,
+        head_dim,
+        lora_rank=4
+    ):
         super().__init__()
 
-        self.gamma_proj = nn.Linear(guidance_dim, head_dim)
-        self.beta_proj = nn.Linear(guidance_dim, head_dim)
+        self.head_dim = head_dim
+        self.lora_rank = lora_rank
 
-        # identity-centered init
-        nn.init.zeros_(self.gamma_proj.weight)
-        nn.init.zeros_(self.gamma_proj.bias)
+        # ------------------------------------------
+        # LoRA hypernets
+        # ------------------------------------------
 
-        nn.init.zeros_(self.beta_proj.weight)
-        nn.init.zeros_(self.beta_proj.bias)
+        self.lora_A = nn.Sequential(
+            nn.Linear(guidance_dim, guidance_dim),
+            nn.GELU(),
+            nn.Linear(
+                guidance_dim,
+                head_dim * lora_rank
+            )
+        )
+
+        self.lora_B = nn.Sequential(
+            nn.Linear(guidance_dim, guidance_dim),
+            nn.GELU(),
+            nn.Linear(
+                guidance_dim,
+                head_dim * lora_rank
+            )
+        )
+
+        # self.lora_A = nn.Linear(
+        #     guidance_dim,
+        #     head_dim * lora_rank
+        # )
+
+        # self.lora_B = nn.Linear(
+        #     guidance_dim,
+        #     lora_rank * head_dim
+        # )
+
+        # identity-centered
+        nn.init.zeros_(self.lora_A[0].weight)
+        nn.init.zeros_(self.lora_A[0].bias)
+        nn.init.zeros_(self.lora_A[2].weight)
+        nn.init.zeros_(self.lora_A[2].bias)
+
+        nn.init.zeros_(self.lora_B[0].weight)
+        nn.init.zeros_(self.lora_B[0].bias)
+        nn.init.zeros_(self.lora_B[2].weight)
+        nn.init.zeros_(self.lora_B[2].bias)
+
+        # learnable global gate
+        self.lora_scale = nn.Parameter(
+            torch.tensor(0.0)
+        )
+
     # end init
 
     def forward(self, x, z_g):
-        delta_gamma = self.gamma_proj(z_g)
-        beta = self.beta_proj(z_g)
 
-        delta_gamma = delta_gamma[:, None, None, :]
-        beta = beta[:, None, None, :]
+        B = x.shape[0]
 
-        return (1.0 + delta_gamma) * x + beta
+        # ======================================
+        # LoRA branch
+        # ======================================
+
+        A = self.lora_A(z_g).view(
+            B,
+            self.lora_rank,
+            self.head_dim
+        )
+
+        Bmat = self.lora_B(z_g).view(
+            B,
+            self.head_dim,
+            self.lora_rank
+        )
+
+        low_rank = torch.einsum(
+            "brd,bhtd->bhtr",
+            A,
+            x
+        )
+
+        low_rank = torch.einsum(
+            "bdr,bhtr->bhtd",
+            Bmat,
+            low_rank
+        )
+
+        scale = torch.tanh(
+            self.lora_scale
+        )
+
+        return x + scale * low_rank
     # end forward
-# end class IdCenteredFiLM
+# end IdLoRA
+
+# class IdCenteredFiLM(nn.Module):
+
+#     def __init__(self, guidance_dim, head_dim):
+#         super().__init__()
+
+#         self.gamma_proj = nn.Linear(guidance_dim, head_dim)
+#         self.beta_proj = nn.Linear(guidance_dim, head_dim)
+
+#         # identity-centered init
+#         nn.init.zeros_(self.gamma_proj.weight)
+#         nn.init.zeros_(self.gamma_proj.bias)
+
+#         nn.init.zeros_(self.beta_proj.weight)
+#         nn.init.zeros_(self.beta_proj.bias)
+#     # end init
+
+#     def forward(self, x, z_g):
+#         delta_gamma = self.gamma_proj(z_g)
+#         beta = self.beta_proj(z_g)
+
+#         delta_gamma = delta_gamma[:, None, None, :]
+#         beta = beta[:, None, None, :]
+
+#         return (1.0 + delta_gamma) * x + beta
+#     # end forward
+# # end class IdCenteredFiLM
 
 
 # ============================================================
-# Attention with Id-centered FiLM
+# Attention with Id-centered LoRA
 # ============================================================
 
-class MultiHeadAttentionWithAttnFiLM(nn.Module):
+class MultiHeadAttentionWithAttnLoRA(nn.Module):
 
     def __init__(
         self,
@@ -84,30 +187,30 @@ class MultiHeadAttentionWithAttnFiLM(nn.Module):
 
         self.out_proj = nn.Linear(d_model, d_model)
 
-        self.q_films = nn.ModuleList([
-            IdCenteredFiLM(guidance_dim, self.head_dim)
+        self.q_lora = nn.ModuleList([
+            IdLoRA(guidance_dim, self.head_dim)
             for _ in range(num_heads)
         ])
 
-        self.k_films = nn.ModuleList([
-            IdCenteredFiLM(guidance_dim, self.head_dim)
+        self.k_lora = nn.ModuleList([
+            IdLoRA(guidance_dim, self.head_dim)
             for _ in range(num_heads)
         ])
 
-        self.v_films = nn.ModuleList([
-            IdCenteredFiLM(guidance_dim, self.head_dim)
+        self.v_lora = nn.ModuleList([
+            IdLoRA(guidance_dim, self.head_dim)
             for _ in range(num_heads)
         ])
 
         self.dropout = nn.Dropout(dropout)
 
         # storage
-        self.last_pre_film_scores = None
-        self.last_post_film_scores = None
+        self.last_pre_lora_scores = None
+        self.last_post_lora_scores = None
         self.last_attention_probs = None
 
         # v gate
-        self.v_film_scale = nn.Parameter(
+        self.v_lora_scale = nn.Parameter(
             torch.tensor(0.0)
         )
     # end init
@@ -142,7 +245,7 @@ class MultiHeadAttentionWithAttnFiLM(nn.Module):
         V = V.transpose(1, 2)
 
         # =====================================================
-        # PRE-FILM SCORES
+        # PRE-LoRA SCORES
         # =====================================================
 
         pre_scores = torch.matmul(
@@ -151,7 +254,7 @@ class MultiHeadAttentionWithAttnFiLM(nn.Module):
         ) / math.sqrt(self.head_dim)
 
         # -----------------------------------------------------
-        # apply FiLM
+        # apply LoRA
         # -----------------------------------------------------
 
         q_heads = []
@@ -165,17 +268,17 @@ class MultiHeadAttentionWithAttnFiLM(nn.Module):
             v_h = V[:, h:h+1]
 
             if z_g is not None:
-                q_h = self.q_films[h](q_h, z_g)
-                k_h = self.k_films[h](k_h, z_g)
-                # v_h = self.v_films[h](v_h, z_g)
-                v_mod = self.v_films[h](v_h, z_g)
-                scale = torch.tanh(self.v_film_scale)
+                q_h = self.q_lora[h](q_h, z_g)
+                k_h = self.k_lora[h](k_h, z_g)
+                # v_h = self.v_lora[h](v_h, z_g)
+                v_mod = self.v_lora[h](v_h, z_g)
+                scale = torch.tanh(self.v_lora_scale)
                 v_h = v_h + scale * (v_mod - v_h)
 
             q_heads.append(q_h)
             k_heads.append(k_h)
             v_heads.append(v_h)
-
+        
         Q_film = torch.cat(q_heads, dim=1)
         K_film = torch.cat(k_heads, dim=1)
         V_film = torch.cat(v_heads, dim=1)
@@ -302,7 +405,7 @@ class TransformerBlockWithAttnFiLM(nn.Module):
 # Single Encoder Model
 # ============================================================
 
-class AttnFiLMSEModel(nn.Module):
+class FiLMLoRASEModel(nn.Module):
 
     def __init__(
         self,
@@ -537,4 +640,4 @@ class AttnFiLMSEModel(nn.Module):
             param.requires_grad = True
     # end unfreeze_all
 
-# end class AttnFiLMSEModel
+# end class FiLMLoRASEModel

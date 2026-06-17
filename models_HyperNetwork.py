@@ -529,7 +529,7 @@ class TransformerBlockWithAttnFiLM(nn.Module):
 # Single Encoder Model
 # ============================================================
 
-class LoRAFiLMSEModel(nn.Module):
+class HyperNetworkSEModel(nn.Module):
     def __init__(
         self,
         chord_vocab_size,
@@ -790,4 +790,36 @@ class LoRAFiLMSEModel(nn.Module):
         for param in self.parameters():
             param.requires_grad = True
     # end unfreeze_all
-# end class LoRAFiLMSEModel
+# end class HyperNetworkSEModel
+
+'''
+
+I think it would be better to compare four approaches and see which one works best:
+
+
+
+1) FiLM per head - per layer.
+
+
+
+2) LoRA per head - per layer.
+
+
+
+3) FiLM-LoRA per head - per layer.
+
+
+
+4) Hypernetwork FiLM-LoRA for the entire network.
+
+
+
+Currently we have 1) FiLM per head - per layer and 3) FiLM-LoRA per head - per layer.
+
+
+
+We have constructed 4) Hypernetwork, but I think we need to modify it so that it becomes directly comparable with the others. That is, remove the decoder and make the LoRA components include two layers. We need also to construct 2) pure LoRA per head - per layer.
+
+
+
+'''

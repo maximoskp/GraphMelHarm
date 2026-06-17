@@ -441,7 +441,7 @@ class TransformerBlockWithAttnFiLM(nn.Module):
 # Single Encoder Model
 # ============================================================
 
-class LHFiLMLoRASEModel(nn.Module):
+class FiLMLoRASEModel(nn.Module):
 
     def __init__(
         self,
@@ -676,4 +676,4 @@ class LHFiLMLoRASEModel(nn.Module):
             param.requires_grad = True
     # end unfreeze_all
 
-# end class LHFiLMLoRASEModel
+# end class FiLMLoRASEModel

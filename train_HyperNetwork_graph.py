@@ -3,7 +3,7 @@ from GridMLM_tokenizers import CSGridMLMTokenizer
 from data_utils import HarmonicGraphDataset, harmonic_graph_collate_fn
 from torch.utils.data import DataLoader, ConcatDataset
 from models_graph import HarmonicGraphEncoder
-from generate_utils import load_LoRAFiLMSEModel
+from generate_utils import load_HyperNetworkSEModel
 import torch
 from torch.optim import AdamW
 from torch.nn import CrossEntropyLoss
@@ -99,7 +99,7 @@ def main():
     graph_model.to(device)
 
     # load the model
-    transformer_model = load_LoRAFiLMSEModel(
+    transformer_model = load_HyperNetworkSEModel(
         tokenizer=tokenizer,
         guidance_dim=graph_model.output_dim,
         device=device
@@ -137,7 +137,7 @@ def main():
     optimizer = AdamW(transformer_model.parameters(), lr=lr)
 
     # save results
-    results_path = os.path.join( 'results', 'LoRAFiLM', 'graph' + '_mel'*use_melody + '.csv' )
+    results_path = os.path.join( 'results', 'HyperNetwork', 'graph' + '_mel'*use_melody + '.csv' )
     os.makedirs('results', exist_ok=True)
     os.makedirs('results/LoRAFiLM', exist_ok=True)
 

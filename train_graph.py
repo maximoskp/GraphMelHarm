@@ -11,6 +11,9 @@ import os
 import pickle
 from train_utils import train_graph_loop
 import argparse
+import sys
+
+model_versions = ['FiLM', 'LoRA', 'FiLMLoRA', 'HyperNetwork']
 
 def main():
 
@@ -18,6 +21,8 @@ def main():
     parser = argparse.ArgumentParser(description='Script for training a selected contrastive space.')
 
     # Define arguments
+    parser.add_argument('-v', '--version', type=int, help=f'Specify the model version. Available: {model_versions}', required=True)
+    parser.add_argument('-d', '--datasets', type=int, help='Specify datasets to train on. Provide letters in jnhw', required=True)
     parser.add_argument('-m', '--melody', type=int, help='Specify whether melody is used - defaults to no=0.', required=False)
     parser.add_argument('-g', '--gpu', type=int, help='Specify whether and which GPU will be used by used by index. Not using this argument means use CPU.', required=False)
     parser.add_argument('-e', '--epochs', type=int, help='Specify number of epochs. Defaults to 100.', required=False)
@@ -26,6 +31,16 @@ def main():
 
     # Parse the arguments
     args = parser.parse_args()
+    if args.version is None:
+        sys.exit(f'Specify the model version. Available: {model_versions}')
+    else:
+        version = args.version
+        if version not in model_versions:
+            sys.exit(f'Specify the model version. Available: {model_versions}')
+    if args.datasets is None:
+        sys.exit('Specify datasets to train on. Provide letters in jnhw')
+    else:
+        datasets = args.datasets
     use_melody = False
     if args.melody is not None:
         use_melody = args.melody != 0
@@ -43,39 +58,64 @@ def main():
     if args.batchsize:
         batch_size = args.batchsize
 
-    # print('loading hook')
-    # train_hook = 'data/hook' + '_mel'*use_melody + '_train.pkl'
-    # val_hook = 'data/hook' + '_mel'*use_melody + '_test.pkl'
-    # with open(train_hook, 'rb') as f:
-    #     train_d_hook = pickle.load(f)
-    # with open(val_hook, 'rb') as f:
-    #     val_d_hook = pickle.load(f)
-    
-    train_gjt = 'data/gjt' + '_mel'*use_melody + '_train.pkl'
-    print('loading gjt: ', train_gjt)
-    val_gjt = 'data/gjt' + '_mel'*use_melody + '_test.pkl'
-    print('loading gjt: ', val_gjt)
-    with open(train_gjt, 'rb') as f:
-        train_d_gjt = pickle.load(f)
-    with open(val_gjt, 'rb') as f:
-        val_d_gjt = pickle.load(f)
-    
-    train_nottingham = 'data/nott' + '_mel'*use_melody + '_train.pkl'
-    print('loading nottingham:', train_nottingham)
-    val_nottingham = 'data/nott' + '_mel'*use_melody + '_test.pkl'
-    print('loading nottingham:', val_nottingham)
-    with open(train_nottingham, 'rb') as f:
-        train_d_nottingham = pickle.load(f)
-    with open(val_nottingham, 'rb') as f:
-        val_d_nottingham = pickle.load(f)
+    concat_train = []
+    concat_val = []
 
-    # print('loading wikifonia')
-    # train_wikifonia = 'data/wiki' + '_mel'*use_melody + '_train.pkl'
-    # val_wikifonia = 'data/wiki' + '_mel'*use_melody + '_test.pkl'
-    # with open(train_wikifonia, 'rb') as f:
-    #     train_d_wikifonia = pickle.load(f)
-    # with open(val_wikifonia, 'rb') as f:
-    #     val_d_wikifonia = pickle.load(f)
+    if 'h' in datasets:
+        train_hook = 'data/hook' + '_mel'*use_melody + '_train.pkl'
+        print('loading hook: ', train_hook)
+        val_hook = 'data/hook' + '_mel'*use_melody + '_test.pkl'
+        print('loading hook: ', val_hook)
+        with open(train_hook, 'rb') as f:
+            train_d_hook = pickle.load(f)
+        with open(val_hook, 'rb') as f:
+            val_d_hook = pickle.load(f)
+        train_dataset_hook = HarmonicGraphDataset(train_d_hook, tokenizer, transformer_model, include_melody=use_melody)
+        val_dataset_hook = HarmonicGraphDataset(val_d_hook, tokenizer, transformer_model, include_melody=use_melody)
+        concat_train.append(train_dataset_hook)
+        concat_val.append(val_dataset_hook)
+    
+    if 'j' in datasets:
+        train_gjt = 'data/gjt' + '_mel'*use_melody + '_train.pkl'
+        print('loading gjt: ', train_gjt)
+        val_gjt = 'data/gjt' + '_mel'*use_melody + '_test.pkl'
+        print('loading gjt: ', val_gjt)
+        with open(train_gjt, 'rb') as f:
+            train_d_gjt = pickle.load(f)
+        with open(val_gjt, 'rb') as f:
+            val_d_gjt = pickle.load(f)
+        train_dataset_gjt = HarmonicGraphDataset(train_d_gjt, tokenizer, transformer_model, include_melody=use_melody)
+        val_dataset_gjt = HarmonicGraphDataset(val_d_gjt, tokenizer, transformer_model, include_melody=use_melody)
+        concat_train.append(train_dataset_gjt)
+        concat_val.append(val_dataset_gjt)
+    
+    if 'n' in datasets:
+        train_nottingham = 'data/nott' + '_mel'*use_melody + '_train.pkl'
+        print('loading nottingham:', train_nottingham)
+        val_nottingham = 'data/nott' + '_mel'*use_melody + '_test.pkl'
+        print('loading nottingham:', val_nottingham)
+        with open(train_nottingham, 'rb') as f:
+            train_d_nottingham = pickle.load(f)
+        with open(val_nottingham, 'rb') as f:
+            val_d_nottingham = pickle.load(f)
+        train_dataset_nottingham = HarmonicGraphDataset(train_d_nottingham, tokenizer, transformer_model, include_melody=use_melody)
+        val_dataset_nottingham = HarmonicGraphDataset(val_d_nottingham, tokenizer, transformer_model, include_melody=use_melody)
+        concat_train.append(train_dataset_nottingham)
+        concat_val.append(val_dataset_nottingham)
+
+    if 'w' in datasets:
+        train_wikifonia = 'data/wiki' + '_mel'*use_melody + '_train.pkl'
+        print('loading wikifonia: ', train_wikifonia)
+        val_wikifonia = 'data/wiki' + '_mel'*use_melody + '_test.pkl'
+        print('loading wikifonia: ', val_wikifonia)
+        with open(train_wikifonia, 'rb') as f:
+            train_d_wikifonia = pickle.load(f)
+        with open(val_wikifonia, 'rb') as f:
+            val_d_wikifonia = pickle.load(f)
+        train_dataset_wikifonia = HarmonicGraphDataset(train_d_wikifonia, tokenizer, transformer_model, include_melody=use_melody)
+        val_dataset_wikifonia = HarmonicGraphDataset(val_d_wikifonia, tokenizer, transformer_model, include_melody=use_melody)
+        concat_train.append(train_dataset_wikifonia)
+        concat_val.append(val_dataset_wikifonia)
     
     if device_name == 'cpu':
         device = torch.device('cpu')
@@ -106,27 +146,8 @@ def main():
     )
     transformer_model.to(device)
 
-    # train_dataset_hook = HarmonicGraphDataset(train_d_hook, tokenizer, transformer_model, include_melody=use_melody)
-    # val_dataset_hook = HarmonicGraphDataset(val_d_hook, tokenizer, transformer_model, include_melody=use_melody)
-    train_dataset_gjt = HarmonicGraphDataset(train_d_gjt, tokenizer, transformer_model, include_melody=use_melody)
-    val_dataset_gjt = HarmonicGraphDataset(val_d_gjt, tokenizer, transformer_model, include_melody=use_melody)
-    train_dataset_nottingham = HarmonicGraphDataset(train_d_nottingham, tokenizer, transformer_model, include_melody=use_melody)
-    val_dataset_nottingham = HarmonicGraphDataset(val_d_nottingham, tokenizer, transformer_model, include_melody=use_melody)
-    # train_dataset_wikifonia = HarmonicGraphDataset(train_d_wikifonia, tokenizer, transformer_model, include_melody=use_melody)
-    # val_dataset_wikifonia = HarmonicGraphDataset(val_d_wikifonia, tokenizer, transformer_model, include_melody=use_melody)
-
-    train_dataset = ConcatDataset([
-        # train_dataset_hook,
-        train_dataset_gjt,
-        train_dataset_nottingham,
-        # train_dataset_wikifonia
-    ])
-    val_dataset = ConcatDataset([
-        # val_dataset_hook,
-        val_dataset_gjt,
-        val_dataset_nottingham,
-        # val_dataset_wikifonia
-    ])
+    train_dataset = ConcatDataset(concat_train)
+    val_dataset = ConcatDataset(concat_val)
     
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=harmonic_graph_collate_fn)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=harmonic_graph_collate_fn)
@@ -137,16 +158,16 @@ def main():
     optimizer = AdamW(transformer_model.parameters(), lr=lr)
 
     # save results
-    results_path = os.path.join( 'results', 'graph' + '_mel'*use_melody + '.csv' )
+    results_path = os.path.join( 'results', version, 'graph' + '_mel'*use_melody + '.csv' )
     os.makedirs('results', exist_ok=True)
+    os.makedirs(f'results/{version}/', exist_ok=True)
+    os.makedirs(f'results/{version}/graph/', exist_ok=True)
 
+    save_dir = f'saved_models/{version}/graph/'
     os.makedirs('saved_models/', exist_ok=True)
-    os.makedirs('saved_models/graph/', exist_ok=True)
-    save_dir = 'saved_models/graph/'
+    os.makedirs(f'saved_models/{version}/', exist_ok=True)
+    os.makedirs(f'saved_models/{version}/graph/', exist_ok=True)
     transformer_path = save_dir + f'transformer_model' + '_mel'*use_melody + '.pt'
-    os.makedirs('saved_models/', exist_ok=True)
-    os.makedirs('saved_models/graph/', exist_ok=True)
-    save_dir = 'saved_models/graph/'
     graph_model_path = save_dir + f'graph_model' + '_mel'*use_melody + '.pt'
 
     train_graph_loop(

@@ -2,7 +2,7 @@ import GridMLM_tokenizers
 from GridMLM_tokenizers import CSGridMLMTokenizer
 from data_utils import CSGridMLMDataset, CSGridMLM_collate_fn
 from torch.utils.data import DataLoader, ConcatDataset
-from models_LH_FiLMLoRA import LHFiLMLoRASEModel
+from models_HyperNetwork import HyperNetworkSEModel
 import torch
 from torch.optim import AdamW
 from torch.nn import CrossEntropyLoss
@@ -78,7 +78,7 @@ def main():
 
     d_model = 512
     guidance_dim = 128
-    model = LHFiLMLoRASEModel(
+    model = HyperNetworkSEModel(
         chord_vocab_size=len(tokenizer.vocab),
         guidance_dim=guidance_dim,
         d_model=d_model,
@@ -93,12 +93,12 @@ def main():
 
     # save results
     os.makedirs('results', exist_ok=True)
-    os.makedirs('results/LHFiLMLoRA_SE/', exist_ok=True)
-    results_path = 'results/LHFiLMLoRA_SE/' + 'pretraining.csv'
+    os.makedirs('results/pretraining_LoRAFiLM/', exist_ok=True)
+    results_path = 'results/pretraining_LoRAFiLM/' + 'pretraining.csv'
 
     os.makedirs('saved_models/', exist_ok=True)
-    os.makedirs('saved_models/LHFiLMLoRA_SE/', exist_ok=True)
-    save_dir = 'saved_models/LHFiLMLoRA_SE/'
+    os.makedirs('saved_models/LoRAFiLM_pretrained/', exist_ok=True)
+    save_dir = 'saved_models/LoRAFiLM_pretrained/'
     transformer_path = save_dir + 'pretrained.pt'
 
     train_with_curriculum(
