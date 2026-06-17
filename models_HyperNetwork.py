@@ -37,17 +37,15 @@ class HyperGuide(nn.Module):
         num_layers,
         num_heads,
         head_dim,
-        rank=8,
+        lora_rank=8,
         layer_emb_dim=16,
         head_emb_dim=16,
-        adapter_dim=32,
         hidden_dim=128
     ):
         super().__init__()
 
         self.head_dim = head_dim
-        self.rank = rank
-        self.adapter_dim = adapter_dim
+        self.lora_rank = lora_rank
 
         self.layer_embedding = nn.Embedding(
             num_layers,
@@ -82,11 +80,6 @@ class HyperGuide(nn.Module):
             head_dim
         )
 
-        self.adapter_proj = nn.Linear(
-            hidden_dim,
-            adapter_dim
-        )
-
         # identity initialization
 
         nn.init.zeros_(self.gamma_proj.weight)
@@ -95,8 +88,63 @@ class HyperGuide(nn.Module):
         nn.init.zeros_(self.beta_proj.weight)
         nn.init.zeros_(self.beta_proj.bias)
 
-        nn.init.zeros_(self.adapter_proj.weight)
-        nn.init.zeros_(self.adapter_proj.bias)
+        # ------------------------------------------
+        # LoRA hypernets
+        # ------------------------------------------
+
+        self.lora_A = nn.Sequential(
+            nn.Linear(guidance_dim, guidance_dim),
+            nn.GELU(),
+            nn.Linear(
+                guidance_dim,
+                head_dim * self.lora_rank
+            )
+        )
+
+        self.lora_B = nn.Sequential(
+            nn.Linear(guidance_dim, guidance_dim),
+            nn.GELU(),
+            nn.Linear(
+                guidance_dim,
+                head_dim * self.lora_rank
+            )
+        )
+
+        # initialize non-zero
+        nn.init.normal_(
+            self.lora_A[0].weight,
+            std=0.02
+        )
+        nn.init.normal_(
+            self.lora_A[2].weight,
+            std=0.02
+        )
+        nn.init.zeros_(
+            self.lora_B[0].weight
+        )
+        nn.init.zeros_(
+            self.lora_B[2].weight
+        )
+        nn.init.normal_(
+            self.lora_A[0].bias,
+            std=0.02
+        )
+        nn.init.normal_(
+            self.lora_A[2].bias,
+            std=0.02
+        )
+        nn.init.zeros_(
+            self.lora_B[0].bias
+        )
+        nn.init.zeros_(
+            self.lora_B[2].bias
+        )
+
+        # learnable global gate
+        self.lora_scale = nn.Parameter(
+            torch.tensor(0.0001)
+        )
+
     # end init
 
     def forward(
@@ -138,82 +186,47 @@ class HyperGuide(nn.Module):
 
         gamma = self.gamma_proj(h)
         beta = self.beta_proj(h)
-        adapter_code = self.adapter_proj(h)
 
-        return gamma, beta, adapter_code
+        # ======================================
+        # LoRA branch
+        # ======================================
+
+        A = self.lora_A(z_g).view(
+            B,
+            self.lora_rank,
+            self.head_dim
+        )
+
+        Bmat = self.lora_B(z_g).view(
+            B,
+            self.head_dim,
+            self.lora_rank
+        )
+
+        # low_rank = torch.einsum(
+        #     "brd,bhtd->bhtr",
+        #     A,
+        #     x
+        # )
+
+        # low_rank = torch.einsum(
+        #     "bdr,bhtr->bhtd",
+        #     Bmat,
+        #     low_rank
+        # )
+
+        return gamma, beta, A, Bmat
     # end forward
 # end HyperGuide
 
 # ============================================================
-# LoRA adapter decoder
+# HyperFiLMLoRA
 # ============================================================
 
-class AdapterDecoder(nn.Module):
-
-    def __init__(
-        self,
-        adapter_dim,
-        head_dim,
-        rank
-    ):
-        super().__init__()
-
-        self.head_dim = head_dim
-        self.rank = rank
-
-        self.A_proj = nn.Linear(
-            adapter_dim,
-            rank * head_dim
-        )
-
-        self.B_proj = nn.Linear(
-            adapter_dim,
-            head_dim * rank
-        )
-
-        nn.init.zeros_(self.A_proj.weight)
-        nn.init.zeros_(self.A_proj.bias)
-
-        nn.init.zeros_(self.B_proj.weight)
-        nn.init.zeros_(self.B_proj.bias)
-    # end init
-
-    def forward(
-        self,
-        adapter_code
-    ):
-
-        B = adapter_code.shape[0]
-
-        A = self.A_proj(
-            adapter_code
-        ).view(
-            B,
-            self.rank,
-            self.head_dim
-        )
-
-        Bmat = self.B_proj(
-            adapter_code
-        ).view(
-            B,
-            self.head_dim,
-            self.rank
-        )
-
-        return A, Bmat
-    # end forward
-# end AdapterDecoder
-
-# ============================================================
-# HyperLoRAFiLM
-# ============================================================
-
-class HyperLoRAFiLM(nn.Module):
+class HyperFiLMLoRA(nn.Module):
     def __init__(
         self,
         hyperguide,
-        adapter_decoder,
         layer_idx,
         head_idx
     ):
@@ -221,13 +234,12 @@ class HyperLoRAFiLM(nn.Module):
 
         self.hyperguide = hyperguide
 
-        self.adapter_decoder = adapter_decoder
-
         self.layer_idx = layer_idx
         self.head_idx = head_idx
 
-        self.adapter_scale = nn.Parameter(
-            torch.tensor(0.0)
+        # learnable global gate
+        self.lora_scale = nn.Parameter(
+            torch.tensor(0.0001)
         )
     # end init
 
@@ -236,14 +248,10 @@ class HyperLoRAFiLM(nn.Module):
         x,
         z_g
     ):
-        gamma, beta, code = self.hyperguide(
+        gamma, beta, A, Bmat = self.hyperguide(
             z_g,
             self.layer_idx,
             self.head_idx
-        )
-
-        A, Bmat = self.adapter_decoder(
-            code
         )
 
         gamma = gamma[:, None, None, :]
@@ -268,36 +276,32 @@ class HyperLoRAFiLM(nn.Module):
         )
 
         scale = torch.tanh(
-            self.adapter_scale
+            self.lora_scale
         )
 
-        return (
-            x
-            + scale * (
-                gamma * low_rank + beta
-            )
+        film_out = (
+            (1.0 + gamma) * x
+            + beta
         )
+
+        return film_out + scale * low_rank
     # end init
-# end HyperLoRAFiLM
+# end HyperFiLMLoRA
 
 # ============================================================
-# Attention with Id-centered FiLM
+# Attention with Id-centered FiLMLoRA
 # ============================================================
 
-class MultiHeadAttentionWithAttnFiLM(nn.Module):
+class MultiHeadAttentionWithAttnHyper(nn.Module):
 
     def __init__(
         self,
         d_model,
         num_heads,
-        guidance_dim,
         layer_idx,
         hyper_q,
         hyper_k,
         hyper_v,
-        decoder_q,
-        decoder_k,
-        decoder_v,
         dropout=0.1
     ):
         super().__init__()
@@ -315,17 +319,17 @@ class MultiHeadAttentionWithAttnFiLM(nn.Module):
         self.out_proj = nn.Linear(d_model, d_model)
 
         self.hyper_lora_q = nn.ModuleList([
-            HyperLoRAFiLM(hyper_q, decoder_q, layer_idx, head_idx)
+            HyperFiLMLoRA(hyper_q, layer_idx, head_idx)
             for head_idx in range(num_heads)
         ])
 
         self.hyper_lora_k = nn.ModuleList([
-            HyperLoRAFiLM(hyper_k, decoder_k, layer_idx, head_idx)
+            HyperFiLMLoRA(hyper_k, layer_idx, head_idx)
             for head_idx in range(num_heads)
         ])
 
         self.hyper_lora_v = nn.ModuleList([
-            HyperLoRAFiLM(hyper_v, decoder_v, layer_idx, head_idx)
+            HyperFiLMLoRA(hyper_v, layer_idx, head_idx)
             for head_idx in range(num_heads)
         ])
 
@@ -447,14 +451,14 @@ class MultiHeadAttentionWithAttnFiLM(nn.Module):
         
         return out
     # end forward
-# end class MultiHeadAttentionWithAttnFiLM
+# end class MultiHeadAttentionWithAttnHyper
 
 
 # ============================================================
 # Transformer Block
 # ============================================================
 
-class TransformerBlockWithAttnFiLM(nn.Module):
+class TransformerBlockWithAttnHyper(nn.Module):
 
     def __init__(
         self,
@@ -466,24 +470,17 @@ class TransformerBlockWithAttnFiLM(nn.Module):
         hyper_q,
         hyper_k,
         hyper_v,
-        decoder_q,
-        decoder_k,
-        decoder_v,
         dropout=0.1
     ):
         super().__init__()
 
-        self.attn = MultiHeadAttentionWithAttnFiLM(
+        self.attn = MultiHeadAttentionWithAttnHyper(
             d_model,
             num_heads,
-            guidance_dim,
             layer_idx,
             hyper_q,
             hyper_k,
             hyper_v,
-            decoder_q,
-            decoder_k,
-            decoder_v,
             dropout=dropout
         )
 
@@ -522,7 +519,7 @@ class TransformerBlockWithAttnFiLM(nn.Module):
 
         return x
     # end forward
-# end class TransformerBlockWithAttnFiLM
+# end class TransformerBlockWithAttnHyper
 
 
 # ============================================================
@@ -611,33 +608,11 @@ class HyperNetworkSEModel(nn.Module):
         )
 
         # -----------------------------------------------------
-        # adapter decoders
-        # -----------------------------------------------------
-
-        self.decoder_q = AdapterDecoder(
-            32,
-            d_model // nhead,
-            rank=8
-        )
-
-        self.decoder_k = AdapterDecoder(
-            32,
-            d_model // nhead,
-            rank=8
-        )
-
-        self.decoder_v = AdapterDecoder(
-            32,
-            d_model // nhead,
-            rank=8
-        )
-
-        # -----------------------------------------------------
         # transformer blocks
         # -----------------------------------------------------
 
         self.layers = nn.ModuleList([
-            TransformerBlockWithAttnFiLM(
+            TransformerBlockWithAttnHyper(
                 d_model=d_model,
                 num_heads=nhead,
                 ff_dim=dim_feedforward,
@@ -646,9 +621,6 @@ class HyperNetworkSEModel(nn.Module):
                 hyper_q=self.hyper_q,
                 hyper_k=self.hyper_k,
                 hyper_v=self.hyper_v,
-                decoder_q=self.decoder_q,
-                decoder_k=self.decoder_k,
-                decoder_v=self.decoder_v,
                 dropout=dropout
             )
             for layer_idx in range(num_layers)
@@ -769,7 +741,7 @@ class HyperNetworkSEModel(nn.Module):
                 param.requires_grad = True
     # end freeze_base
 
-    def freeze_FiLM(self):
+    def freeze_guidance(self):
         for param in self.parameters():
             param.requires_grad = True
             for param in self.hyper_q.parameters():
@@ -777,12 +749,6 @@ class HyperNetworkSEModel(nn.Module):
             for param in self.hyper_k.parameters():
                 param.requires_grad = False
             for param in self.hyper_v.parameters():
-                param.requires_grad = False
-            for param in self.decoder_q.parameters():
-                param.requires_grad = False
-            for param in self.decoder_k.parameters():
-                param.requires_grad = False
-            for param in self.decoder_v.parameters():
                 param.requires_grad = False
     # end freeze_base
 
@@ -796,29 +762,18 @@ class HyperNetworkSEModel(nn.Module):
 
 I think it would be better to compare four approaches and see which one works best:
 
-
-
 1) FiLM per head - per layer.
-
-
-
 2) LoRA per head - per layer.
-
-
-
 3) FiLM-LoRA per head - per layer.
-
-
-
 4) Hypernetwork FiLM-LoRA for the entire network.
-
-
-
 Currently we have 1) FiLM per head - per layer and 3) FiLM-LoRA per head - per layer.
 
+I think the easier part now is to make 2) LoRA-only model. I made attempt in the code that I paste below.
 
+First please let me know if the code is OK. Then, I think that scaling the LoRA contribution in IdLoRA is probably enough and we don't need the second `tanh`-based scale that we do in the main model. Any comments for that?
 
-We have constructed 4) Hypernetwork, but I think we need to modify it so that it becomes directly comparable with the others. That is, remove the decoder and make the LoRA components include two layers. We need also to construct 2) pure LoRA per head - per layer.
+We have constructed 4) Hypernetwork, but I think we need to modify it so that it becomes directly comparable with the others.
+That is, remove the decoder and make the LoRA components include two layers. We need also to construct 2) pure LoRA per head - per layer.
 
 
 

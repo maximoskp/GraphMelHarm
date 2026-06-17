@@ -106,10 +106,10 @@ class MultiHeadAttentionWithAttnFiLM(nn.Module):
         self.last_post_film_scores = None
         self.last_attention_probs = None
 
-        # v gate
-        self.v_film_scale = nn.Parameter(
-            torch.tensor(0.0)
-        )
+        # # v gate
+        # self.v_film_scale = nn.Parameter(
+        #     torch.tensor(0.0)
+        # )
     # end init
 
     def forward(
@@ -167,10 +167,10 @@ class MultiHeadAttentionWithAttnFiLM(nn.Module):
             if z_g is not None:
                 q_h = self.q_films[h](q_h, z_g)
                 k_h = self.k_films[h](k_h, z_g)
-                # v_h = self.v_films[h](v_h, z_g)
-                v_mod = self.v_films[h](v_h, z_g)
-                scale = torch.tanh(self.v_film_scale)
-                v_h = v_h + scale * (v_mod - v_h)
+                v_h = self.v_films[h](v_h, z_g)
+                # v_mod = self.v_films[h](v_h, z_g)
+                # scale = torch.tanh(self.v_film_scale)
+                # v_h = v_h + scale * (v_mod - v_h)
 
             q_heads.append(q_h)
             k_heads.append(k_h)
@@ -517,7 +517,7 @@ class FiLMSEModel(nn.Module):
                     param.requires_grad = True
     # end freeze_base
 
-    def freeze_FiLM(self):
+    def freeze_guidance(self):
         for param in self.parameters():
             param.requires_grad = True
         for layer in self.layers:

@@ -5,9 +5,10 @@ from music21 import harmony, stream, metadata, chord, note, key, meter, tempo, d
 import mir_eval
 import numpy as np
 from copy import deepcopy
-from models_FiLM import AttnFiLMSEModel
+from models_FiLM import FiLMSEModel
+from models_LoRA import LoRASEModel
+from models_FiLMLoRA import FiLMLoRASEModel
 from models_HyperNetwork import HyperNetworkSEModel
-from models_FiLMLoRA import LHFiLMLoRASEModel
 from models_graph import HarmonicGraphEncoder
 from models_BiLSTM import HarmonyBiLSTM
 import os
@@ -190,14 +191,14 @@ def save_harmonized_score(score, title="Harmonized Piece", out_path="harmonized.
         print('uknown file format for file: ', out_path)
 # end save_harmonized_score
 
-def load_AttnFiLMSEModel(
+def load_FiLMSEModel(
         tokenizer,
         device,
         guidance_dim=128,
         d_model=512,
         checkpoint_path=None,
     ):
-    transformer_model = AttnFiLMSEModel(
+    transformer_model = FiLMSEModel(
         chord_vocab_size=len(tokenizer.vocab),
         guidance_dim=guidance_dim,
         device=device,
@@ -210,12 +211,66 @@ def load_AttnFiLMSEModel(
     if checkpoint_path is not None:
         checkpoint = torch.load(checkpoint_path, map_location=device)
     else:
-        checkpoint = torch.load(f'saved_models/SE/pretrained_epoch203_nvis2.pt', map_location=device)
+        checkpoint = torch.load(f'saved_models/FiLM_pretrained/pretrained_epoch203_nvis2.pt', map_location=device)
     transformer_model.load_state_dict(checkpoint)
     transformer_model.to(device)
     transformer_model.eval()
     return transformer_model
-# end load_SE_FiLM
+# end load_FiLMSEModel
+
+def load_LoRASEModel(
+        tokenizer,
+        device,
+        guidance_dim=128,
+        d_model=512,
+        checkpoint_path=None,
+    ):
+    transformer_model = LoRASEModel(
+        chord_vocab_size=len(tokenizer.vocab),
+        guidance_dim=guidance_dim,
+        device=device,
+        d_model=d_model,
+        nhead=8,
+        num_layers=8,
+        grid_length=80,
+        pianoroll_dim=tokenizer.pianoroll_dim,
+    )
+    if checkpoint_path is not None:
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+    else:
+        checkpoint = torch.load(f'saved_models/LoRA_pretrained/pretrained_epoch203_nvis2.pt', map_location=device)
+    transformer_model.load_state_dict(checkpoint)
+    transformer_model.to(device)
+    transformer_model.eval()
+    return transformer_model
+# end load_LoRASEModel
+
+def load_FiLMLoRASEModel(
+        tokenizer,
+        device,
+        guidance_dim=128,
+        d_model=512,
+        checkpoint_path=None,
+    ):
+    transformer_model = FiLMLoRASEModel(
+        chord_vocab_size=len(tokenizer.vocab),
+        guidance_dim=guidance_dim,
+        device=device,
+        d_model=d_model,
+        nhead=8,
+        num_layers=8,
+        grid_length=80,
+        pianoroll_dim=tokenizer.pianoroll_dim,
+    )
+    if checkpoint_path is not None:
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+    else:
+        checkpoint = torch.load(f'saved_models/FiLMLoRA_pretrained/pretrained_epoch203_nvis2.pt', map_location=device)
+    transformer_model.load_state_dict(checkpoint)
+    transformer_model.to(device)
+    transformer_model.eval()
+    return transformer_model
+# end load_FiLMLoRASEModel
 
 def load_HyperNetworkSEModel(
         tokenizer,

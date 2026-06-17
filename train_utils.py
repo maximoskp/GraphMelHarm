@@ -552,7 +552,7 @@ def train_with_curriculum(
             for batch in tepoch:
                 perplexity_metric.reset()
                 model.train()
-                model.freeze_FiLM()
+                model.freeze_guidance()
                 melody_grid = batch["pianoroll"].to(device)    # (B, L, prDim)
                 harmony_gt = batch["harmony_ids"].to(device)     # (B, L)
                 if condition_dim is not None:

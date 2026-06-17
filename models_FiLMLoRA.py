@@ -26,7 +26,7 @@ def sinusoidal_positional_encoding(seq_len, d_model, device):
 # end sinusoidal_positional_encoding
 
 # ============================================================
-# Id-centered FiLM
+# Id-centered FiLMLoRA
 # ============================================================
 
 class IdFiLMLoRA(nn.Module):
@@ -35,7 +35,7 @@ class IdFiLMLoRA(nn.Module):
         self,
         guidance_dim,
         head_dim,
-        lora_rank=4
+        lora_rank=8
     ):
         super().__init__()
 
@@ -94,20 +94,39 @@ class IdFiLMLoRA(nn.Module):
         #     lora_rank * head_dim
         # )
 
-        # identity-centered
-        nn.init.zeros_(self.lora_A[0].weight)
-        nn.init.zeros_(self.lora_A[0].bias)
-        nn.init.zeros_(self.lora_A[2].weight)
-        nn.init.zeros_(self.lora_A[2].bias)
-
-        nn.init.zeros_(self.lora_B[0].weight)
-        nn.init.zeros_(self.lora_B[0].bias)
-        nn.init.zeros_(self.lora_B[2].weight)
-        nn.init.zeros_(self.lora_B[2].bias)
+        # initialize non-zero
+        nn.init.normal_(
+            self.lora_A[0].weight,
+            std=0.02
+        )
+        nn.init.normal_(
+            self.lora_A[2].weight,
+            std=0.02
+        )
+        nn.init.zeros_(
+            self.lora_B[0].weight
+        )
+        nn.init.zeros_(
+            self.lora_B[2].weight
+        )
+        nn.init.normal_(
+            self.lora_A[0].bias,
+            std=0.02
+        )
+        nn.init.normal_(
+            self.lora_A[2].bias,
+            std=0.02
+        )
+        nn.init.zeros_(
+            self.lora_B[0].bias
+        )
+        nn.init.zeros_(
+            self.lora_B[2].bias
+        )
 
         # learnable global gate
         self.lora_scale = nn.Parameter(
-            torch.tensor(0.0)
+            torch.tensor(0.0001)
         )
 
     # end init
@@ -197,10 +216,10 @@ class IdFiLMLoRA(nn.Module):
 
 
 # ============================================================
-# Attention with Id-centered FiLM
+# Attention with Id-centered FiLMLoRA
 # ============================================================
 
-class MultiHeadAttentionWithAttnFiLM(nn.Module):
+class MultiHeadAttentionWithAttnFiLMLoRA(nn.Module):
 
     def __init__(
         self,
@@ -247,7 +266,7 @@ class MultiHeadAttentionWithAttnFiLM(nn.Module):
 
         # v gate
         self.v_film_scale = nn.Parameter(
-            torch.tensor(0.0)
+            torch.tensor(0.0001)
         )
     # end init
 
@@ -371,14 +390,14 @@ class MultiHeadAttentionWithAttnFiLM(nn.Module):
 
         return out
     # end forward
-# end class MultiHeadAttentionWithAttnFiLM
+# end class MultiHeadAttentionWithAttnFiLMLoRA
 
 
 # ============================================================
 # Transformer Block
 # ============================================================
 
-class TransformerBlockWithAttnFiLM(nn.Module):
+class TransformerBlockWithAttnFiLMLoRA(nn.Module):
 
     def __init__(
         self,
@@ -390,7 +409,7 @@ class TransformerBlockWithAttnFiLM(nn.Module):
     ):
         super().__init__()
 
-        self.attn = MultiHeadAttentionWithAttnFiLM(
+        self.attn = MultiHeadAttentionWithAttnFiLMLoRA(
             d_model=d_model,
             num_heads=num_heads,
             guidance_dim=guidance_dim,
@@ -434,7 +453,7 @@ class TransformerBlockWithAttnFiLM(nn.Module):
 
         return x
     # end forward
-# end class TransformerBlockWithAttnFiLM
+# end class TransformerBlockWithAttnFiLMLoRA
 
 
 # ============================================================
@@ -503,7 +522,7 @@ class FiLMLoRASEModel(nn.Module):
         # -----------------------------------------------------
 
         self.layers = nn.ModuleList([
-            TransformerBlockWithAttnFiLM(
+            TransformerBlockWithAttnFiLMLoRA(
                 d_model=d_model,
                 num_heads=nhead,
                 ff_dim=dim_feedforward,
@@ -656,7 +675,7 @@ class FiLMLoRASEModel(nn.Module):
                     param.requires_grad = True
     # end freeze_base
 
-    def freeze_FiLM(self):
+    def freeze_guidance(self):
         for param in self.parameters():
             param.requires_grad = True
         for layer in self.layers:

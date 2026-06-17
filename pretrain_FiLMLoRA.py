@@ -97,8 +97,8 @@ def main():
     results_path = 'results/pretraining_FiLMLoRA/' + 'pretraining.csv'
 
     os.makedirs('saved_models/', exist_ok=True)
-    os.makedirs('saved_models/pretrained_FiLMLoRA/', exist_ok=True)
-    save_dir = 'saved_models/pretrained_FiLMLoRA/'
+    os.makedirs('saved_models/FiLMLoRA_pretrained/', exist_ok=True)
+    save_dir = 'saved_models/FiLMLoRA_pretrained/'
     transformer_path = save_dir + 'pretrained.pt'
 
     train_with_curriculum(
