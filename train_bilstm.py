@@ -3,7 +3,7 @@ from GridMLM_tokenizers import CSGridMLMTokenizer
 from data_utils import HarmonicBiLSTMDataset, harmonic_bilstm_collate_fn
 from torch.utils.data import DataLoader, ConcatDataset
 from models_BiLSTM import HarmonyBiLSTM
-from generate_utils import load_AttnFiLMSEModel
+from generate_utils import load_FiLMSEModel, load_FiLMLoRASEModel, load_LoRASEModel, load_HyperNetworkSEModel
 import torch
 from torch.optim import AdamW
 from torch.nn import CrossEntropyLoss
@@ -11,6 +11,14 @@ import os
 import pickle
 from train_utils import train_bilstm_loop
 import argparse
+import sys
+
+model_version_loaders = {
+    'FiLM': load_FiLMSEModel,
+    'LoRA': load_LoRASEModel,
+    'FiLMLoRA': load_FiLMLoRASEModel,
+    'HyperNetwork': load_HyperNetworkSEModel
+}
 
 def main():
 
@@ -18,6 +26,8 @@ def main():
     parser = argparse.ArgumentParser(description='Script for training a selected contrastive space.')
 
     # Define arguments
+    parser.add_argument('-v', '--version', type=str, help=f'Specify the model version. Available: {model_version_loaders.keys()}', required=True)
+    parser.add_argument('-d', '--datasets', type=str, help='Specify datasets to train on. Provide letters in jnhw', required=True)
     parser.add_argument('-m', '--melody', type=int, help='Specify whether melody is used - defaults to no=0.', required=False)
     parser.add_argument('-g', '--gpu', type=int, help='Specify whether and which GPU will be used by used by index. Not using this argument means use CPU.', required=False)
     parser.add_argument('-e', '--epochs', type=int, help='Specify number of epochs. Defaults to 100.', required=False)
@@ -26,6 +36,16 @@ def main():
 
     # Parse the arguments
     args = parser.parse_args()
+    if args.version is None:
+        sys.exit(f'Specify the model version. Available: {model_version_loaders.keys()}')
+    else:
+        version = args.version
+        if version not in model_version_loaders.keys():
+            sys.exit(f'Specify the model version. Available: {model_version_loaders.keys()}')
+    if args.datasets is None:
+        sys.exit('Specify datasets to train on. Provide letters in jnhw')
+    else:
+        datasets = args.datasets
     use_melody = False
     if args.melody is not None:
         use_melody = args.melody != 0
@@ -43,37 +63,8 @@ def main():
     if args.batchsize:
         batch_size = args.batchsize
 
-    # print('loading hook')
-    # train_hook = 'data/hook' + '_mel'*use_melody + '_train.pkl'
-    # val_hook = 'data/hook' + '_mel'*use_melody + '_test.pkl'
-    # with open(train_hook, 'rb') as f:
-    #     train_d_hook = pickle.load(f)
-    # with open(val_hook, 'rb') as f:
-    #     val_d_hook = pickle.load(f)
-    
-    print('loading gjt')
-    train_gjt = 'data/gjt' + '_mel'*use_melody + '_train.pkl'
-    val_gjt = 'data/gjt' + '_mel'*use_melody + '_test.pkl'
-    with open(train_gjt, 'rb') as f:
-        train_d_gjt = pickle.load(f)
-    with open(val_gjt, 'rb') as f:
-        val_d_gjt = pickle.load(f)
-    
-    print('loading nottingham')
-    train_nottingham = 'data/nott' + '_mel'*use_melody + '_train.pkl'
-    val_nottingham = 'data/nott' + '_mel'*use_melody + '_test.pkl'
-    with open(train_nottingham, 'rb') as f:
-        train_d_nottingham = pickle.load(f)
-    with open(val_nottingham, 'rb') as f:
-        val_d_nottingham = pickle.load(f)
-
-    # print('loading wikifonia')
-    # train_wikifonia = 'data/wiki' + '_mel'*use_melody + '_train.pkl'
-    # val_wikifonia = 'data/wiki' + '_mel'*use_melody + '_test.pkl'
-    # with open(train_wikifonia, 'rb') as f:
-    #     train_d_wikifonia = pickle.load(f)
-    # with open(val_wikifonia, 'rb') as f:
-    #     val_d_wikifonia = pickle.load(f)
+    concat_train = []
+    concat_val = []
     
     if device_name == 'cpu':
         device = torch.device('cpu')
@@ -97,34 +88,71 @@ def main():
     bilstm_model.to(device)
 
     # load the model
-    transformer_model = load_AttnFiLMSEModel(
+    transformer_model = model_version_loaders[version](
         tokenizer=tokenizer,
         guidance_dim=bilstm_model.output_dim,
         device=device
     )
     transformer_model.to(device)
 
-    # train_dataset_hook = HarmonicBiLSTMDataset(train_d_hook, tokenizer, transformer_model, include_melody=use_melody)
-    # val_dataset_hook = HarmonicBiLSTMDataset(val_d_hook, tokenizer, transformer_model, include_melody=use_melody)
-    train_dataset_gjt = HarmonicBiLSTMDataset(train_d_gjt, tokenizer, transformer_model, include_melody=use_melody)
-    val_dataset_gjt = HarmonicBiLSTMDataset(val_d_gjt, tokenizer, transformer_model, include_melody=use_melody)
-    train_dataset_nottingham = HarmonicBiLSTMDataset(train_d_nottingham, tokenizer, transformer_model, include_melody=use_melody)
-    val_dataset_nottingham = HarmonicBiLSTMDataset(val_d_nottingham, tokenizer, transformer_model, include_melody=use_melody)
-    # train_dataset_wikifonia = HarmonicBiLSTMDataset(train_d_wikifonia, tokenizer, transformer_model, include_melody=use_melody)
-    # val_dataset_wikifonia = HarmonicBiLSTMDataset(val_d_wikifonia, tokenizer, transformer_model, include_melody=use_melody)
+    if 'h' in datasets:
+        train_hook = 'data/hook' + '_mel'*use_melody + '_train.pkl'
+        print('loading hook: ', train_hook)
+        val_hook = 'data/hook' + '_mel'*use_melody + '_test.pkl'
+        print('loading hook: ', val_hook)
+        with open(train_hook, 'rb') as f:
+            train_d_hook = pickle.load(f)
+        with open(val_hook, 'rb') as f:
+            val_d_hook = pickle.load(f)
+        train_dataset_hook = HarmonicBiLSTMDataset(train_d_hook, tokenizer, transformer_model, include_melody=use_melody)
+        val_dataset_hook = HarmonicBiLSTMDataset(val_d_hook, tokenizer, transformer_model, include_melody=use_melody)
+        concat_train.append(train_dataset_hook)
+        concat_val.append(val_dataset_hook)
+    
+    if 'j' in datasets:
+        train_gjt = 'data/gjt' + '_mel'*use_melody + '_train.pkl'
+        print('loading gjt: ', train_gjt)
+        val_gjt = 'data/gjt' + '_mel'*use_melody + '_test.pkl'
+        print('loading gjt: ', val_gjt)
+        with open(train_gjt, 'rb') as f:
+            train_d_gjt = pickle.load(f)
+        with open(val_gjt, 'rb') as f:
+            val_d_gjt = pickle.load(f)
+        train_dataset_gjt = HarmonicBiLSTMDataset(train_d_gjt, tokenizer, transformer_model, include_melody=use_melody)
+        val_dataset_gjt = HarmonicBiLSTMDataset(val_d_gjt, tokenizer, transformer_model, include_melody=use_melody)
+        concat_train.append(train_dataset_gjt)
+        concat_val.append(val_dataset_gjt)
+    
+    if 'n' in datasets:
+        train_nottingham = 'data/nott' + '_mel'*use_melody + '_train.pkl'
+        print('loading nottingham:', train_nottingham)
+        val_nottingham = 'data/nott' + '_mel'*use_melody + '_test.pkl'
+        print('loading nottingham:', val_nottingham)
+        with open(train_nottingham, 'rb') as f:
+            train_d_nottingham = pickle.load(f)
+        with open(val_nottingham, 'rb') as f:
+            val_d_nottingham = pickle.load(f)
+        train_dataset_nottingham = HarmonicBiLSTMDataset(train_d_nottingham, tokenizer, transformer_model, include_melody=use_melody)
+        val_dataset_nottingham = HarmonicBiLSTMDataset(val_d_nottingham, tokenizer, transformer_model, include_melody=use_melody)
+        concat_train.append(train_dataset_nottingham)
+        concat_val.append(val_dataset_nottingham)
 
-    train_dataset = ConcatDataset([
-        # train_dataset_hook,
-        train_dataset_gjt,
-        train_dataset_nottingham,
-        # train_dataset_wikifonia
-    ])
-    val_dataset = ConcatDataset([
-        # val_dataset_hook,
-        val_dataset_gjt,
-        val_dataset_nottingham,
-        # val_dataset_wikifonia
-    ])
+    if 'w' in datasets:
+        train_wikifonia = 'data/wiki' + '_mel'*use_melody + '_train.pkl'
+        print('loading wikifonia: ', train_wikifonia)
+        val_wikifonia = 'data/wiki' + '_mel'*use_melody + '_test.pkl'
+        print('loading wikifonia: ', val_wikifonia)
+        with open(train_wikifonia, 'rb') as f:
+            train_d_wikifonia = pickle.load(f)
+        with open(val_wikifonia, 'rb') as f:
+            val_d_wikifonia = pickle.load(f)
+        train_dataset_wikifonia = HarmonicBiLSTMDataset(train_d_wikifonia, tokenizer, transformer_model, include_melody=use_melody)
+        val_dataset_wikifonia = HarmonicBiLSTMDataset(val_d_wikifonia, tokenizer, transformer_model, include_melody=use_melody)
+        concat_train.append(train_dataset_wikifonia)
+        concat_val.append(val_dataset_wikifonia)
+
+    train_dataset = ConcatDataset(concat_train)
+    val_dataset = ConcatDataset(concat_val)
     
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=harmonic_bilstm_collate_fn)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=harmonic_bilstm_collate_fn)
@@ -135,16 +163,15 @@ def main():
     optimizer = AdamW(transformer_model.parameters(), lr=lr)
 
     # save results
-    results_path = os.path.join( 'results', 'bilstm' + '_mel'*use_melody + '.csv' )
+    results_path = os.path.join( 'results', version, 'bilstm' + '_mel'*use_melody + '.csv' )
     os.makedirs('results', exist_ok=True)
+    os.makedirs(f'results/{version}', exist_ok=True)
 
+    save_dir = f'saved_models/{version}/bilstm/'
     os.makedirs('saved_models/', exist_ok=True)
-    os.makedirs('saved_models/bilstm/', exist_ok=True)
-    save_dir = 'saved_models/bilstm/'
+    os.makedirs(f'saved_models/{version}/', exist_ok=True)
+    os.makedirs(f'saved_models/{version}/bilstm/', exist_ok=True)
     transformer_path = save_dir + f'transformer_model' + '_mel'*use_melody + '.pt'
-    os.makedirs('saved_models/', exist_ok=True)
-    os.makedirs('saved_models/bilstm/', exist_ok=True)
-    save_dir = 'saved_models/bilstm/'
     bilstm_model_path = save_dir + f'bilstm_model' + '_mel'*use_melody + '.pt'
 
     train_bilstm_loop(
