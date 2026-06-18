@@ -66,6 +66,35 @@ def main():
 
     concat_train = []
     concat_val = []
+    
+    if device_name == 'cpu':
+        device = torch.device('cpu')
+    else:
+        if torch.cuda.is_available():
+            device = torch.device(device_name)
+        else:
+            print('Selected device not available: ' + device_name)
+    # end device selection
+
+    tokenizer = CSGridMLMTokenizer(
+        fixed_length=80,
+        quantization='4th',
+        intertwine_bar_info=True,
+        trim_start=False,
+        use_pc_roll=True,
+        use_full_range_melody=False
+    )
+
+    graph_model = HarmonicGraphEncoder(participation_edge_dim=5 if not use_melody else 8)
+    graph_model.to(device)
+
+    # load the model
+    transformer_model = model_version_loaders[version](
+        tokenizer=tokenizer,
+        guidance_dim=graph_model.output_dim,
+        device=device
+    )
+    transformer_model.to(device)
 
     if 'h' in datasets:
         train_hook = 'data/hook' + '_mel'*use_melody + '_train.pkl'
@@ -122,35 +151,6 @@ def main():
         val_dataset_wikifonia = HarmonicGraphDataset(val_d_wikifonia, tokenizer, transformer_model, include_melody=use_melody)
         concat_train.append(train_dataset_wikifonia)
         concat_val.append(val_dataset_wikifonia)
-    
-    if device_name == 'cpu':
-        device = torch.device('cpu')
-    else:
-        if torch.cuda.is_available():
-            device = torch.device(device_name)
-        else:
-            print('Selected device not available: ' + device_name)
-    # end device selection
-
-    tokenizer = CSGridMLMTokenizer(
-        fixed_length=80,
-        quantization='4th',
-        intertwine_bar_info=True,
-        trim_start=False,
-        use_pc_roll=True,
-        use_full_range_melody=False
-    )
-
-    graph_model = HarmonicGraphEncoder(participation_edge_dim=5 if not use_melody else 8)
-    graph_model.to(device)
-
-    # load the model
-    transformer_model = model_version_loaders[version](
-        tokenizer=tokenizer,
-        guidance_dim=graph_model.output_dim,
-        device=device
-    )
-    transformer_model.to(device)
 
     train_dataset = ConcatDataset(concat_train)
     val_dataset = ConcatDataset(concat_val)

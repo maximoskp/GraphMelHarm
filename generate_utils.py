@@ -292,7 +292,7 @@ def load_HyperNetworkSEModel(
     if checkpoint_path is not None:
         checkpoint = torch.load(checkpoint_path, map_location=device)
     else:
-        checkpoint = torch.load(f'saved_models/LoRAFiLM_SE/pretrained_epoch203_nvis2.pt', map_location=device)
+        checkpoint = torch.load(f'saved_models/HyperNetwork_pretrained/pretrained_epoch203_nvis2.pt', map_location=device)
     transformer_model.load_state_dict(checkpoint)
     transformer_model.to(device)
     transformer_model.eval()

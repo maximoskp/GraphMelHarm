@@ -733,12 +733,6 @@ class HyperNetworkSEModel(nn.Module):
                 param.requires_grad = True
             for param in self.hyper_v.parameters():
                 param.requires_grad = True
-            for param in self.decoder_q.parameters():
-                param.requires_grad = True
-            for param in self.decoder_k.parameters():
-                param.requires_grad = True
-            for param in self.decoder_v.parameters():
-                param.requires_grad = True
     # end freeze_base
 
     def freeze_guidance(self):
