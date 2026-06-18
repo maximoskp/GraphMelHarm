@@ -167,7 +167,6 @@ def main():
     results_path = os.path.join( 'results', version, 'graph' + '_mel'*use_melody + '.csv' )
     os.makedirs('results', exist_ok=True)
     os.makedirs(f'results/{version}/', exist_ok=True)
-    os.makedirs(f'results/{version}/graph/', exist_ok=True)
 
     save_dir = f'saved_models/{version}/graph/'
     os.makedirs('saved_models/', exist_ok=True)

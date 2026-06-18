@@ -7,8 +7,8 @@
 
 # List of Python scripts with their respective arguments
 scripts=(
-    "train_graph.py -v FiLM -d jn -m 0 -g 0 -e 100 -l 1e-4 -b 16"
-    # "train_graph.py -v FiLMLoRA -d jn -m 0 -g 0 -e 100 -l 1e-4 -b 16"
+    # "train_graph.py -v FiLM -d jn -m 0 -g 0 -e 100 -l 1e-4 -b 16"
+    "train_graph.py -v FiLMLoRA -d jn -m 0 -g 0 -e 100 -l 1e-4 -b 16"
     # "train_graph.py -v LoRA -d jn -m 0 -g 0 -e 100 -l 1e-4 -b 16"
     # "train_graph.py -v HyperNetwork -d jn -m 0 -g 0 -e 100 -l 1e-4 -b 16"
 )
