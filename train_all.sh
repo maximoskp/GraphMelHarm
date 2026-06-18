@@ -13,8 +13,9 @@ scripts=(
     # "train_bilstm.py -m 1 -g 0 -e 50 -l 1e-4 -b 16"
 
     # "train_LoRAFiLM_graph.py -m 0 -g 0 -e 50 -l 1e-4 -b 16"
+    # "train_LHFiLMLoRA_graph.py -m 0 -g 0 -e 50 -l 1e-4 -b 16"
 
-    "train_LHFiLMLoRA_graph.py -m 0 -g 0 -e 50 -l 1e-4 -b 16"
+    "train_graph.py -v HyperNetwork -d jn -m 0 -g 0 -e 50 -l 1e-4 -b 16"
 )
 
 # Name of the conda environment

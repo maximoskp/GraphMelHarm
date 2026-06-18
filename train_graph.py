@@ -3,7 +3,7 @@ from GridMLM_tokenizers import CSGridMLMTokenizer
 from data_utils import HarmonicGraphDataset, harmonic_graph_collate_fn
 from torch.utils.data import DataLoader, ConcatDataset
 from models_graph import HarmonicGraphEncoder
-from generate_utils import load_AttnFiLMSEModel
+from generate_utils import load_FiLMSEModel, load_FiLMLoRASEModel, load_LoRASEModel, load_HyperNetworkSEModel
 import torch
 from torch.optim import AdamW
 from torch.nn import CrossEntropyLoss
@@ -13,7 +13,12 @@ from train_utils import train_graph_loop
 import argparse
 import sys
 
-model_versions = ['FiLM', 'LoRA', 'FiLMLoRA', 'HyperNetwork']
+model_version_loaders = {
+    'FiLM': load_FiLMSEModel,
+    'LoRA': load_LoRASEModel,
+    'FiLMLoRA': load_FiLMLoRASEModel,
+    'HyperNetwork': load_HyperNetworkSEModel
+}
 
 def main():
 
@@ -21,8 +26,8 @@ def main():
     parser = argparse.ArgumentParser(description='Script for training a selected contrastive space.')
 
     # Define arguments
-    parser.add_argument('-v', '--version', type=int, help=f'Specify the model version. Available: {model_versions}', required=True)
-    parser.add_argument('-d', '--datasets', type=int, help='Specify datasets to train on. Provide letters in jnhw', required=True)
+    parser.add_argument('-v', '--version', type=str, help=f'Specify the model version. Available: {model_version_loaders.keys()}', required=True)
+    parser.add_argument('-d', '--datasets', type=str, help='Specify datasets to train on. Provide letters in jnhw', required=True)
     parser.add_argument('-m', '--melody', type=int, help='Specify whether melody is used - defaults to no=0.', required=False)
     parser.add_argument('-g', '--gpu', type=int, help='Specify whether and which GPU will be used by used by index. Not using this argument means use CPU.', required=False)
     parser.add_argument('-e', '--epochs', type=int, help='Specify number of epochs. Defaults to 100.', required=False)
@@ -30,13 +35,14 @@ def main():
     parser.add_argument('-b', '--batchsize', type=int, help='Specify batch size. Defaults to 32.', required=False)
 
     # Parse the arguments
+    print('parsing arguments')
     args = parser.parse_args()
     if args.version is None:
-        sys.exit(f'Specify the model version. Available: {model_versions}')
+        sys.exit(f'Specify the model version. Available: {model_version_loaders.keys()}')
     else:
         version = args.version
-        if version not in model_versions:
-            sys.exit(f'Specify the model version. Available: {model_versions}')
+        if version not in model_version_loaders.keys():
+            sys.exit(f'Specify the model version. Available: {model_version_loaders.keys()}')
     if args.datasets is None:
         sys.exit('Specify datasets to train on. Provide letters in jnhw')
     else:
@@ -139,7 +145,7 @@ def main():
     graph_model.to(device)
 
     # load the model
-    transformer_model = load_AttnFiLMSEModel(
+    transformer_model = model_version_loaders[version](
         tokenizer=tokenizer,
         guidance_dim=graph_model.output_dim,
         device=device
