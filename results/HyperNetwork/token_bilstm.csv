@@ -1,0 +1,2 @@
+epoch,step,total_train_loss,real_train_loss,recomposed_train_loss,random_train_loss,real_train_acc,recomposed_train_acc,random_train_acc,total_val_loss,real_val_loss,recomposed_val_loss,random_val_loss,real_val_acc,recomposed_val_acc,random_val_acc,sav_version
+0,86,8.286529374677082,0.4038754821170208,1.9215757223062737,5.961078172506288,0.8860646802325584,0.7175508720930232,0.5926326308139533,8.663031196594238,1.1756724387407302,1.784555232524872,5.702803611755371,0.7837500000000001,0.7061979166666668,0.5631250000000001,1

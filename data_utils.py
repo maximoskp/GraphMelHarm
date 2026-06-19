@@ -572,7 +572,7 @@ class TokenBiLSTMDataset(Dataset):
                 masked_tokens = masked_tokens.tolist()
                 # prepare inputs for recomposition
                 melody_grid = torch.tensor(d['pianoroll'], dtype=torch.float32).unsqueeze(0)
-                real_ids_segment = torch.tensor(np.asarray(d['harmony_ids'])[mask_token_positions], dtype=torch.long).unsqueeze(0)
+                real_ids_segment = torch.tensor(np.asarray(d['harmony_ids'])[mask_token_positions], dtype=torch.long)
                 masked_tokens_tensor = torch.tensor(masked_tokens, dtype=torch.long).unsqueeze(0)
 
                 # recomposed view
@@ -587,7 +587,7 @@ class TokenBiLSTMDataset(Dataset):
                     nc_token_id=self.tokenizer.nc_token_id,
                     temperature=temperature,
                 )
-                recomposed_ids_segment = recomposed_harmony_ids[0, mask_token_positions_tensor].unsqueeze(0)
+                recomposed_ids_segment = recomposed_harmony_ids[0, mask_token_positions_tensor]
 
                 # randomized view
                 random_harmony_ids = masked_tokens_tensor.clone()
@@ -598,7 +598,7 @@ class TokenBiLSTMDataset(Dataset):
                     (mask_positions.sum().item(),),
                     device=masked_tokens_tensor.device
                 )
-                random_ids_segment = random_harmony_ids[0, mask_token_positions_tensor].unsqueeze(0)
+                random_ids_segment = random_harmony_ids[0, mask_token_positions_tensor]
                 found_segment = True
             except Exception as e:
                 print(e)
@@ -713,9 +713,9 @@ def token_bilstm_collate_fn(batch):
 
         'pianoroll': pianorolls,
 
-        'real_harmony_ids': real_harmony_ids,
-        'recomposed_harmony_ids': recomposed_harmony_ids,
-        'random_harmony_ids': random_harmony_ids,
+        'real_harmony_ids': real_harmony_ids.squeeze(),
+        'recomposed_harmony_ids': recomposed_harmony_ids.squeeze(),
+        'random_harmony_ids': random_harmony_ids.squeeze(),
 
         'real_bilstm': real_bilstm,
         'real_lengths': real_lengths,
