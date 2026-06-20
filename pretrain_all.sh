@@ -7,10 +7,10 @@
 
 # List of Python scripts with their respective arguments
 scripts=(
-    # "pretrain_FiLM.py"
-    "pretrain_LoRA.py"
+    "pretrain_FiLM.py"
+    # "pretrain_LoRA.py"
     # "pretrain_FiLMLoRA.py"
-    # "pretrain_HyperNetwork.py"
+    "pretrain_HyperNetwork.py"
 )
 
 # Name of the conda environment

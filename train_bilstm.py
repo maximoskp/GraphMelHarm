@@ -104,8 +104,8 @@ def main():
             train_d_hook = pickle.load(f)
         with open(val_hook, 'rb') as f:
             val_d_hook = pickle.load(f)
-        train_dataset_hook = HarmonicBiLSTMDataset(train_d_hook, tokenizer, transformer_model, include_melody=use_melody)
-        val_dataset_hook = HarmonicBiLSTMDataset(val_d_hook, tokenizer, transformer_model, include_melody=use_melody)
+        train_dataset_hook = HarmonicBiLSTMDataset(train_d_hook, tokenizer, include_melody=use_melody)
+        val_dataset_hook = HarmonicBiLSTMDataset(val_d_hook, tokenizer, include_melody=use_melody)
         concat_train.append(train_dataset_hook)
         concat_val.append(val_dataset_hook)
     
@@ -118,8 +118,8 @@ def main():
             train_d_gjt = pickle.load(f)
         with open(val_gjt, 'rb') as f:
             val_d_gjt = pickle.load(f)
-        train_dataset_gjt = HarmonicBiLSTMDataset(train_d_gjt, tokenizer, transformer_model, include_melody=use_melody)
-        val_dataset_gjt = HarmonicBiLSTMDataset(val_d_gjt, tokenizer, transformer_model, include_melody=use_melody)
+        train_dataset_gjt = HarmonicBiLSTMDataset(train_d_gjt, tokenizer, include_melody=use_melody)
+        val_dataset_gjt = HarmonicBiLSTMDataset(val_d_gjt, tokenizer, include_melody=use_melody)
         concat_train.append(train_dataset_gjt)
         concat_val.append(val_dataset_gjt)
     
@@ -132,8 +132,8 @@ def main():
             train_d_nottingham = pickle.load(f)
         with open(val_nottingham, 'rb') as f:
             val_d_nottingham = pickle.load(f)
-        train_dataset_nottingham = HarmonicBiLSTMDataset(train_d_nottingham, tokenizer, transformer_model, include_melody=use_melody)
-        val_dataset_nottingham = HarmonicBiLSTMDataset(val_d_nottingham, tokenizer, transformer_model, include_melody=use_melody)
+        train_dataset_nottingham = HarmonicBiLSTMDataset(train_d_nottingham, tokenizer, include_melody=use_melody)
+        val_dataset_nottingham = HarmonicBiLSTMDataset(val_d_nottingham, tokenizer, include_melody=use_melody)
         concat_train.append(train_dataset_nottingham)
         concat_val.append(val_dataset_nottingham)
 
@@ -146,8 +146,8 @@ def main():
             train_d_wikifonia = pickle.load(f)
         with open(val_wikifonia, 'rb') as f:
             val_d_wikifonia = pickle.load(f)
-        train_dataset_wikifonia = HarmonicBiLSTMDataset(train_d_wikifonia, tokenizer, transformer_model, include_melody=use_melody)
-        val_dataset_wikifonia = HarmonicBiLSTMDataset(val_d_wikifonia, tokenizer, transformer_model, include_melody=use_melody)
+        train_dataset_wikifonia = HarmonicBiLSTMDataset(train_d_wikifonia, tokenizer, include_melody=use_melody)
+        val_dataset_wikifonia = HarmonicBiLSTMDataset(val_d_wikifonia, tokenizer, include_melody=use_melody)
         concat_train.append(train_dataset_wikifonia)
         concat_val.append(val_dataset_wikifonia)
 

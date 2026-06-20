@@ -138,8 +138,8 @@ class TemporalMPNN(MessagePassing):
 class HarmonicGraphEncoder(nn.Module):
 
     def __init__(self,
-                 hidden_dim=64,
-                 output_dim=128,
+                 hidden_dim=256,
+                 output_dim=512,
                  participation_edge_dim=5):
 
         super().__init__()

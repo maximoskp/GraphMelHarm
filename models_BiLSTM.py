@@ -11,10 +11,10 @@ class HarmonyBiLSTM(nn.Module):
     def __init__(
         self,
         input_dim=12,
-        proj_dim=64,
-        hidden_dim=128,
+        proj_dim=256,
+        hidden_dim=256,
         num_layers=2,
-        output_dim=128,
+        output_dim=512,
         dropout=0.2
     ):
         super().__init__()
@@ -114,10 +114,10 @@ class TokenHarmonyBiLSTM(nn.Module):
     def __init__(
         self,
         vocab_size,
-        embed_dim=64,
-        hidden_dim=128,
+        embed_dim=256,
+        hidden_dim=256,
         num_layers=2,
-        output_dim=128,
+        output_dim=512,
         dropout=0.2,
         pad_token_id=0
     ):

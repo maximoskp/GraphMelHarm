@@ -8,23 +8,27 @@ from torch.optim import AdamW
 from torch.nn import CrossEntropyLoss
 import os
 from train_utils import train_with_curriculum
+from dotenv import load_dotenv
 
-batchsize = 8
+# Load environment variables from .env file
+load_dotenv()
+
+batchsize = 64
 device_name = 'cuda:0'
 lr = 1e-4
 epochs = 300
 
-train_hook = '/mnt/ssd2/maximos/data/hooktheory_midi_hr/CA_train'
-val_hook = '/mnt/ssd2/maximos/data/hooktheory_midi_hr/CA_test'
+train_hook = os.getenv('TRAIN_HOOK')
+val_hook =   os.getenv('VAL_HOOK')
 
-train_gjt = '/mnt/ssd2/maximos/data/gjt_melodies/gjt_CA_train'
-val_gjt = '/mnt/ssd2/maximos/data/gjt_melodies/gjt_CA_test'
+train_gjt = os.getenv('TRAIN_GJT')
+val_gjt =   os.getenv('VAL_GJT')
 
-train_nott = '/mnt/ssd2/maximos/data/mel_harm_other_CA/nottingham_train'
-val_nott = '/mnt/ssd2/maximos/data/mel_harm_other_CA/nottingham_test'
+train_nott = os.getenv('TRAIN_NOTT')
+val_nott =   os.getenv('VAL_NOTT')
 
-train_wiki = '/mnt/ssd2/maximos/data/mel_harm_other_CA/wikifonia_train'
-val_wiki = '/mnt/ssd2/maximos/data/mel_harm_other_CA/wikifonia_test'
+train_wiki = os.getenv('TRAIN_WIKI')
+val_wiki =   os.getenv('VAL_WIKI')
 
 def main():
     tokenizer = CSGridMLMTokenizer(
@@ -77,7 +81,7 @@ def main():
     loss_fn=CrossEntropyLoss(ignore_index=-100)
 
     d_model = 512
-    guidance_dim = 128
+    guidance_dim = 512
     model = FiLMSEModel(
         chord_vocab_size=len(tokenizer.vocab),
         guidance_dim=guidance_dim,

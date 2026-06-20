@@ -7,13 +7,13 @@
 
 # List of Python scripts with their respective arguments
 scripts=(
-    # "train_graph.py -v FiLM -d jn -m 0 -g 0 -e 100 -l 1e-4 -b 16"
+    "train_graph.py -v FiLM -d jn -m 0 -g 2 -e 100 -l 1e-4 -b 32"
     # "train_graph.py -v FiLMLoRA -d jn -m 0 -g 0 -e 100 -l 1e-4 -b 16"
     # "train_graph.py -v LoRA -d jn -m 0 -g 0 -e 100 -l 1e-4 -b 16"
     # "train_graph.py -v HyperNetwork -d jn -m 0 -g 0 -e 100 -l 1e-4 -b 16"
 
-    "train_bilstm.py -v HyperNetwork -d jn -m 0 -g 0 -e 100 -l 1e-4 -b 16"
-    "train_token_bilstm.py -v HyperNetwork -d jn -m 0 -g 1 -e 100 -l 1e-4 -b 16"
+    # "train_bilstm.py -v HyperNetwork -d jn -m 0 -g 0 -e 100 -l 1e-4 -b 16"
+    # "train_token_bilstm.py -v HyperNetwork -d jn -m 0 -g 1 -e 100 -l 1e-4 -b 16"
 )
 
 # Name of the conda environment

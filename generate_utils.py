@@ -212,6 +212,7 @@ def load_FiLMSEModel(
         checkpoint = torch.load(checkpoint_path, map_location=device)
     else:
         checkpoint = torch.load(f'saved_models/FiLM_pretrained/pretrained_epoch203_nvis2.pt', map_location=device)
+        # checkpoint = torch.load(f'saved_models/FiLM_pretrained/pretrained.pt', map_location=device)
     transformer_model.load_state_dict(checkpoint)
     transformer_model.to(device)
     transformer_model.eval()
