@@ -38,6 +38,12 @@ def make_graph_ready_for_dataset_item(d, tokenizer, include_melody=False):
     return MelodicHarmonization(bar_objects)
 # end make_graph_ready_for_dataset_item
 
+def make_graph_ready_for_token_ids(harmony_token_ids, tokenizer):
+    bars = bar_split(harmony_token_ids, None, tokenizer)
+    bar_objects = make_bar_objects(bars, include_melody=False)
+    return MelodicHarmonization(bar_objects)
+# end make_graph_ready_for_dataset_item
+
 def bar_split(harmony_ids, pianoroll, tokenizer):
     bars = []
     # current_bar = {
@@ -62,7 +68,10 @@ def bar_split(harmony_ids, pianoroll, tokenizer):
             # make sure there is a decodable chord id
             if hid > 6 and current_bar is not None:
                 current_bar['chord_ids'].append(hid)
-                current_bar['melody_pcs'].append(np.where(pianoroll[i] > 0)[0])
+                if pianoroll is not None:
+                    current_bar['melody_pcs'].append(np.where(pianoroll[i] > 0)[0])
+                else:
+                    current_bar['melody_pcs'].append([])
                 current_bar['chord_token_positions'].append(i)
                 current_bar['bar_token_positions'].append(i)
             else:
@@ -138,7 +147,7 @@ class Chord:
         if self.chord_id in chord_id_features.keys():
             self.get_chord_pitch_features()
         else:
-            print(f'problem with chord_id: {chord_id}')
+            print(f'problem with chord_id: {self.chord_id}')
             self.graph_features = None
             self.bilstm_features = None
     # end init
@@ -193,7 +202,7 @@ class ChordWithMelody:
             self.get_chord_pitch_features()
             self.get_chord_melody_features()
         else:
-            print(f'problem with chord_id: {chord_id}')
+            print(f'problem with chord_id: {self.chord_id}')
             self.graph_features = None
             self.bilstm_features = None
     # end init
@@ -567,7 +576,7 @@ def get_graph_embeddings_from_string_with_model(s, graph_model, include_melody=F
     m = graph_from_string(s, include_melody=include_melody)
     with torch.no_grad():
         y_graph = graph_model(m.segment_graph)
-    return y_graph
+    return y_graph.unsqueeze(0)
 # end get_graph_embeddings_from_string_with_model
 
 def get_bilstm_embeddings_from_string_with_model(s, bilstm_model, include_melody=False):
@@ -580,6 +589,21 @@ def get_bilstm_embeddings_from_string_with_model(s, bilstm_model, include_melody
         )
     return y_bilstm
 # end get_bilstm_embeddings_from_string_with_model
+
+def get_token_bilstm_embeddings_from_string_with_model(s, token_bilstm_model, include_melody=False):
+    m = graph_from_string(s, include_melody=include_melody)
+    chord_token_ids = []
+    for b in m.bar_objects:
+        for c in b.chord_objects:
+            chord_token_ids.append( c.chord_id )
+    device = next(token_bilstm_model.parameters()).device
+    with torch.no_grad():
+        y_bilstm = token_bilstm_model(
+            torch.tensor(chord_token_ids, dtype=torch.long).unsqueeze(0).to(device), 
+            torch.tensor([len(chord_token_ids)]).to(device)
+        )
+    return y_bilstm
+# end get_token_bilstm_embeddings_from_string_with_model
 
 def compare_heterodata(g1, g2, tol=1e-6):
     mismatches = []

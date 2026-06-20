@@ -10,7 +10,7 @@ from models_LoRA import LoRASEModel
 from models_FiLMLoRA import FiLMLoRASEModel
 from models_HyperNetwork import HyperNetworkSEModel
 from models_graph import HarmonicGraphEncoder
-from models_BiLSTM import HarmonyBiLSTM
+from models_BiLSTM import HarmonyBiLSTM, TokenHarmonyBiLSTM
 import os
 from music_utils import transpose_score
 
@@ -299,33 +299,6 @@ def load_HyperNetworkSEModel(
     return transformer_model
 # end load_HyperNetworkSEModel
 
-def load_LHFiLMLoRASEModel(
-        tokenizer,
-        device,
-        guidance_dim=128,
-        d_model=512,
-        checkpoint_path=None,
-    ):
-    transformer_model = LHFiLMLoRASEModel(
-        chord_vocab_size=len(tokenizer.vocab),
-        guidance_dim=guidance_dim,
-        device=device,
-        d_model=d_model,
-        nhead=8,
-        num_layers=8,
-        grid_length=80,
-        pianoroll_dim=tokenizer.pianoroll_dim,
-    )
-    if checkpoint_path is not None:
-        checkpoint = torch.load(checkpoint_path, map_location=device)
-    else:
-        checkpoint = torch.load(f'saved_models/LHFiLMLoRA_SE/pretrained_epoch203_nvis2.pt', map_location=device)
-    transformer_model.load_state_dict(checkpoint)
-    transformer_model.to(device)
-    transformer_model.eval()
-    return transformer_model
-# end LHFiLMLoRASEModel
-
 def load_GraphModel(checkpoint_path, device, include_melody=False):
     graph_model = HarmonicGraphEncoder(participation_edge_dim=5 if not include_melody else 8)
     checkpoint = torch.load(checkpoint_path, map_location=device)
@@ -335,6 +308,13 @@ def load_GraphModel(checkpoint_path, device, include_melody=False):
 # end
 def load_BiLSTMModel(checkpoint_path, device, include_melody=False):
     bilstm_model = HarmonyBiLSTM(input_dim=12 if not include_melody else 24)
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    bilstm_model.load_state_dict(checkpoint)
+    bilstm_model.to(device)
+    return bilstm_model
+# end
+def load_TokenBiLSTMModel(checkpoint_path, tokenizer, device, include_melody=False):
+    bilstm_model = TokenHarmonyBiLSTM(len(tokenizer.vocab))
     checkpoint = torch.load(checkpoint_path, map_location=device)
     bilstm_model.load_state_dict(checkpoint)
     bilstm_model.to(device)
