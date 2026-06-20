@@ -435,10 +435,13 @@ class MelodicHarmonization:
         self.segment_bar_end = bar_end
 
         tmp_bilstm_segment = []
+        tmp_tokens_segment = []
         for bar in self.segment_bar_objects:
             for chord in bar.chord_objects:
                 tmp_bilstm_segment.append(chord.bilstm_features)
+                tmp_tokens_segment.append(chord.chord_id)
         self.segment_bilstm = torch.stack(tmp_bilstm_segment)
+        self.segment_tokens = torch.tensor(tmp_tokens_segment, dtype=torch.long)
     # end make_bilstm_seq_of_segment
 # end class MelodicHarmonization
 

@@ -19,8 +19,8 @@ chord_id_features = {tokenizer.vocab[k]: v for k, v in chord_features.items()}
 
 # gjt
 print('gjt - loading')
-train_path = '/mnt/ssd2/maximos/data/gjt_melodies/gjt_CA_train'
-test_path = '/mnt/ssd2/maximos/data/gjt_melodies/gjt_CA_test'
+train_path = '/media/maindisk/data/mel_harm_CA_all/gjt_CA_train'
+test_path = '/media/maindisk/data/mel_harm_CA_all/gjt_CA_test'
 train_dataset = CSGridMLMDataset(train_path, tokenizer, frontloading=True, name_suffix='Q4_L80_bar_PC')
 test_dataset = CSGridMLMDataset(test_path, tokenizer, frontloading=True, name_suffix='Q4_L80_bar_PC')
 print('making graphs - no melody')
@@ -44,8 +44,8 @@ with open('data/gjt_mel_test.pkl', 'wb') as f:
 
 # hook
 print('hook - loading')
-train_path = '/mnt/ssd2/maximos/data/hooktheory_midi_hr/CA_train'
-test_path = '/mnt/ssd2/maximos/data/hooktheory_midi_hr/CA_test'
+train_path = '/media/maindisk/data/mel_harm_CA_all/CA_train'
+test_path = '/media/maindisk/data/mel_harm_CA_all/CA_test'
 train_dataset = CSGridMLMDataset(train_path, tokenizer, frontloading=True, name_suffix='Q4_L80_bar_PC')
 test_dataset = CSGridMLMDataset(test_path, tokenizer, frontloading=True, name_suffix='Q4_L80_bar_PC')
 print('making graphs - no melody')
@@ -69,8 +69,8 @@ with open('data/hook_mel_test.pkl', 'wb') as f:
 
 # wiki
 print('wiki - loading')
-train_path = '/mnt/ssd2/maximos/data/mel_harm_other_CA/wikifonia_train'
-test_path = '/mnt/ssd2/maximos/data/mel_harm_other_CA/wikifonia_test'
+train_path = '/media/maindisk/data/mel_harm_CA_all/wikifonia_train'
+test_path = '/media/maindisk/data/mel_harm_CA_all/wikifonia_test'
 train_dataset = CSGridMLMDataset(train_path, tokenizer, frontloading=True, name_suffix='Q4_L80_bar_PC')
 test_dataset = CSGridMLMDataset(test_path, tokenizer, frontloading=True, name_suffix='Q4_L80_bar_PC')
 print('making graphs - no melody')
@@ -94,8 +94,8 @@ with open('data/wiki_mel_test.pkl', 'wb') as f:
 
 # nott
 print('nott - loading')
-train_path = '/mnt/ssd2/maximos/data/mel_harm_other_CA/nottingham_train'
-test_path = '/mnt/ssd2/maximos/data/mel_harm_other_CA/nottingham_test'
+train_path = '/media/maindisk/data/mel_harm_CA_all/nottingham_train'
+test_path = '/media/maindisk/data/mel_harm_CA_all/nottingham_test'
 train_dataset = CSGridMLMDataset(train_path, tokenizer, frontloading=True, name_suffix='Q4_L80_bar_PC')
 test_dataset = CSGridMLMDataset(test_path, tokenizer, frontloading=True, name_suffix='Q4_L80_bar_PC')
 print('making graphs - no melody')
