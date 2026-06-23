@@ -35,7 +35,6 @@ def main():
     parser.add_argument('-b', '--batchsize', type=int, help='Specify batch size. Defaults to 32.', required=False)
 
     # Parse the arguments
-    print('parsing arguments')
     args = parser.parse_args()
     if args.version is None:
         sys.exit(f'Specify the model version. Available: {model_version_loaders.keys()}')
@@ -161,10 +160,10 @@ def main():
     logits_loss_fn = CrossEntropyLoss(ignore_index=-100)
 
     # optimizer = AdamW(transformer_model.film_parameters(), lr=lr)
-    optimizer = AdamW(transformer_model.parameters(), lr=lr)
+    optimizer = AdamW(list(transformer_model.parameters()) + list(graph_model.parameters()), lr=lr)
 
     # save results
-    results_path = os.path.join( 'results', version, 'graph' + '_mel'*use_melody + '.csv' )
+    results_path = os.path.join( 'results', version, 'graph' + '_mel'*use_melody + '_' + datasets + '.csv' )
     os.makedirs('results', exist_ok=True)
     os.makedirs(f'results/{version}/', exist_ok=True)
 
@@ -172,8 +171,8 @@ def main():
     os.makedirs('saved_models/', exist_ok=True)
     os.makedirs(f'saved_models/{version}/', exist_ok=True)
     os.makedirs(f'saved_models/{version}/graph/', exist_ok=True)
-    transformer_path = save_dir + f'transformer_model' + '_mel'*use_melody + '.pt'
-    graph_model_path = save_dir + f'graph_model' + '_mel'*use_melody + '.pt'
+    transformer_path = save_dir + f'transformer_model' + '_mel'*use_melody + '_' + datasets + '.pt'
+    graph_model_path = save_dir + f'graph_model' + '_mel'*use_melody + '_' + datasets + '.pt'
 
     train_graph_loop(
         transformer_model, graph_model, 

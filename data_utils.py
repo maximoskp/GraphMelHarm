@@ -138,7 +138,7 @@ class HarmonicGraphDataset(Dataset):
         data,
         tokenizer,
         # model,
-        max_segment_bars=16,
+        max_segment_bars=2,
         include_melody=False
     ):
         self.data = data
@@ -154,6 +154,11 @@ class HarmonicGraphDataset(Dataset):
 
     def __getitem__(self, idx):
         d = self.data[idx]
+        new_idx = idx
+        # select another random piece
+        while new_idx == idx:
+            new_idx = np.random.randint(len(self.data))
+            d_new = self.data[new_idx]
         found_segment = False
         while not found_segment:
             try:
@@ -200,14 +205,19 @@ class HarmonicGraphDataset(Dataset):
 
                 # randomized view
                 random_harmony_ids = masked_tokens_tensor.clone()
-                mask_positions = masked_tokens_tensor == self.tokenizer.mask_token_id
-                random_harmony_ids[mask_positions] = torch.randint(
-                    7, 
-                    len(self.tokenizer.vocab), 
-                    (mask_positions.sum().item(),),
-                    device=masked_tokens_tensor.device
-                )
-                # re-make dataset item for constructing graph
+                # mask_positions = masked_tokens_tensor == self.tokenizer.mask_token_id
+                # random_harmony_ids[mask_positions] = torch.randint(
+                #     7, 
+                #     len(self.tokenizer.vocab), 
+                #     (mask_positions.sum().item(),),
+                #     device=masked_tokens_tensor.device
+                # )
+
+                new_harmony_ids = d_new['harmony_ids']
+                mask_token_positions_tensor = torch.tensor(mask_token_positions, dtype=torch.bool).unsqueeze(0)
+                new_harmony_ids_tensor = torch.tensor(new_harmony_ids, dtype=torch.long).unsqueeze(0)
+                random_harmony_ids[mask_token_positions_tensor] = new_harmony_ids_tensor[mask_token_positions_tensor]
+                # # re-make dataset item for constructing graph
                 d_random = d.copy()
                 d_random['harmony_ids'] = random_harmony_ids.squeeze(0).cpu().numpy().tolist()
                 graph_ready_object = make_graph_ready_for_dataset_item(d_random, self.tokenizer, self.include_melody)
@@ -216,7 +226,7 @@ class HarmonicGraphDataset(Dataset):
                 random_graph = d_random['graph_ready_object'].segment_graph
                 found_segment = True
             except Exception as e:
-                print(e)
+                print('error in HarmonicGraphDataset.__getitem__', e)
                 # print(f'retrying segment for idx {idx}: bar_start: {bar_start} - bar_end: {bar_end}')
                 idx = (idx + 1)%len(self.data)
                 d = self.data[idx]
@@ -316,7 +326,7 @@ class HarmonicBiLSTMDataset(Dataset):
         data,
         tokenizer,
         # model,
-        max_segment_bars=16,
+        max_segment_bars=2,
         include_melody=False
     ):
         self.data = data
@@ -534,7 +544,7 @@ class TokenBiLSTMDataset(Dataset):
         data,
         tokenizer,
         # model,
-        max_segment_bars=16,
+        max_segment_bars=2,
         include_melody=False
     ):
         self.data = data

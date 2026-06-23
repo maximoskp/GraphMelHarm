@@ -572,10 +572,12 @@ def graph_from_string(in_seq, include_melody=False):
     return m
 # end graph_from_string
 
-def get_graph_embeddings_from_string_with_model(s, graph_model, include_melody=False):
+def get_graph_embeddings_from_string_with_model(s, graph_model, include_melody=False, return_mel_harm=False):
     m = graph_from_string(s, include_melody=include_melody)
     with torch.no_grad():
         y_graph = graph_model(m.segment_graph)
+    if return_mel_harm:
+        return y_graph.unsqueeze(0), m
     return y_graph.unsqueeze(0)
 # end get_graph_embeddings_from_string_with_model
 

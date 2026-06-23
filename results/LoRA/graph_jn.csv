@@ -1,0 +1,1 @@
+epoch,step,total_train_loss,real_train_loss,random_train_loss,real_train_acc,random_train_acc,total_val_loss,real_val_loss,random_val_loss,real_val_acc,random_val_acc,sav_version

@@ -29,106 +29,227 @@ def sinusoidal_positional_encoding(seq_len, d_model, device):
 # Hyper LoRA
 # ============================================================
 
+# class HyperLoRA(nn.Module):
+
+#     def __init__(
+#         self,
+#         guidance_dim,
+#         head_dim,
+#         lora_rank=32
+#     ):
+#         super().__init__()
+
+#         self.head_dim = head_dim
+#         self.lora_rank = lora_rank
+
+#         # ------------------------------------------
+#         # LoRA hypernets
+#         # ------------------------------------------
+
+#         self.lora_A = nn.Sequential(
+#             nn.Linear(guidance_dim, guidance_dim),
+#             nn.GELU(),
+#             nn.Linear(
+#                 guidance_dim,
+#                 head_dim * lora_rank
+#             )
+#         )
+
+#         self.lora_B = nn.Sequential(
+#             nn.Linear(guidance_dim, guidance_dim),
+#             nn.GELU(),
+#             nn.Linear(
+#                 guidance_dim,
+#                 head_dim * lora_rank
+#             )
+#         )
+
+#         # initialize non-zero
+#         nn.init.normal_(
+#             self.lora_A[0].weight,
+#             std=0.02
+#         )
+#         nn.init.normal_(
+#             self.lora_A[2].weight,
+#             std=0.02
+#         )
+#         nn.init.zeros_(
+#             self.lora_B[0].weight
+#         )
+#         nn.init.zeros_(
+#             self.lora_B[2].weight
+#         )
+#         nn.init.normal_(
+#             self.lora_A[0].bias,
+#             std=0.02
+#         )
+#         nn.init.normal_(
+#             self.lora_A[2].bias,
+#             std=0.02
+#         )
+#         nn.init.zeros_(
+#             self.lora_B[0].bias
+#         )
+#         nn.init.zeros_(
+#             self.lora_B[2].bias
+#         )
+
+#         # learnable global gate
+#         self.lora_scale = nn.Parameter(
+#             torch.tensor(0.0001)
+#         )
+
+#     # end init
+
+#     def forward(self, x, z_g):
+
+#         B = x.shape[0]
+
+#         # ======================================
+#         # LoRA
+#         # ======================================
+
+#         A = self.lora_A(z_g).view(
+#             B,
+#             self.lora_rank,
+#             self.head_dim
+#         )
+
+#         Bmat = self.lora_B(z_g).view(
+#             B,
+#             self.head_dim,
+#             self.lora_rank
+#         )
+
+#         low_rank = torch.einsum(
+#             "brd,bhtd->bhtr",
+#             A,
+#             x
+#         )
+
+#         low_rank = torch.einsum(
+#             "bdr,bhtr->bhtd",
+#             Bmat,
+#             low_rank
+#         )
+
+#         scale = torch.tanh(
+#             self.lora_scale
+#         )
+
+#         return scale * low_rank
+#     # end forward
+# # end HyperLoRA
+
+
 class HyperLoRA(nn.Module):
 
     def __init__(
         self,
         guidance_dim,
-        head_dim,
-        lora_rank=8
+        input_dim,      # d_model
+        output_dim,     # head_dim
+        lora_rank=32
     ):
         super().__init__()
 
-        self.head_dim = head_dim
+        self.input_dim = input_dim
+        self.output_dim = output_dim
         self.lora_rank = lora_rank
 
         # ------------------------------------------
-        # LoRA hypernets
+        # Compact hypernetwork design
+        # Instead of generating full low-rank factors of size (r * d)
+        # directly from the guidance vector (which makes the hypernet
+        # weights huge: out_features ~ r*d), we keep small shared basis
+        # matrices and predict only per-rank coefficients from guidance.
+        # This reduces the hypernetwork output size from O(r*d) -> O(r).
         # ------------------------------------------
 
-        self.lora_A = nn.Sequential(
-            nn.Linear(guidance_dim, guidance_dim),
-            nn.GELU(),
-            nn.Linear(
-                guidance_dim,
-                head_dim * lora_rank
-            )
+        # shared learnable bases (small):
+        # A_base: [r, input_dim]
+        # B_base: [output_dim, r]
+        self.A_base = nn.Parameter(
+            torch.randn(self.lora_rank, self.input_dim) * 0.02
         )
 
-        self.lora_B = nn.Sequential(
-            nn.Linear(guidance_dim, guidance_dim),
-            nn.GELU(),
-            nn.Linear(
-                guidance_dim,
-                head_dim * lora_rank
-            )
+        self.B_base = nn.Parameter(
+            torch.zeros(self.output_dim, self.lora_rank)
         )
 
-        # initialize non-zero
-        nn.init.normal_(
-            self.lora_A[0].weight,
-            std=0.02
-        )
-        nn.init.normal_(
-            self.lora_A[2].weight,
-            std=0.02
-        )
-        nn.init.zeros_(
-            self.lora_B[0].weight
-        )
-        nn.init.zeros_(
-            self.lora_B[2].weight
-        )
-        nn.init.normal_(
-            self.lora_A[0].bias,
-            std=0.02
-        )
-        nn.init.normal_(
-            self.lora_A[2].bias,
-            std=0.02
-        )
-        nn.init.zeros_(
-            self.lora_B[0].bias
-        )
-        nn.init.zeros_(
-            self.lora_B[2].bias
-        )
+        # small hypernets that predict r coefficients from guidance
+        self.lora_A = nn.Linear(guidance_dim, self.lora_rank)
+        self.lora_B = nn.Linear(guidance_dim, self.lora_rank)
 
-        # learnable global gate
-        self.lora_scale = nn.Parameter(
-            torch.tensor(0.0001)
-        )
+        # initialize hypernetwork heads
+        nn.init.normal_(self.lora_A.weight, std=0.02)
+        nn.init.zeros_(self.lora_A.bias)
 
-    # end init
+        # nn.init.zeros_(self.lora_B.weight)
+        nn.init.normal_(self.lora_B.weight, std=0.02)
+        nn.init.zeros_(self.lora_B.bias)
+
+        # learnable global gate (same semantics as before)
+        self.lora_scale = nn.Parameter(torch.tensor(0.0001))
+
+    # end __init__
 
     def forward(self, x, z_g):
+        """
+        x:
+            [B, T, d_model]
 
-        B = x.shape[0]
+        z_g:
+            [B, guidance_dim]
+
+        returns:
+            delta_q
+            [B, T, head_dim]
+        """
+
+        B, T, _ = x.shape
 
         # ======================================
-        # LoRA
+        # Generate low-rank factors (compact)
+        # Predict per-rank coefficients (B, r) and combine with shared
+        # basis matrices to form full low-rank factors:
+        # A: [B, r, input_dim] = coeffs_A.unsqueeze(-1) * A_base
+        # Bmat: [B, output_dim, r] = B_base.unsqueeze(0) * coeffs_B.unsqueeze(1)
+        # This keeps the hypernetwork small (guidance_dim -> r)
         # ======================================
 
-        A = self.lora_A(z_g).view(
-            B,
-            self.lora_rank,
-            self.head_dim
-        )
+        coeffs_A = self.lora_A(z_g).view(B, self.lora_rank)
+        coeffs_B = self.lora_B(z_g).view(B, self.lora_rank)
 
-        Bmat = self.lora_B(z_g).view(
-            B,
-            self.head_dim,
-            self.lora_rank
-        )
+        A = coeffs_A.unsqueeze(-1) * self.A_base.unsqueeze(0)
+        Bmat = self.B_base.unsqueeze(0) * coeffs_B.unsqueeze(1)
+
+        # ======================================
+        # A @ x
+        #
+        # A:    [B, r, d_model]
+        # x:    [B, T, d_model]
+        #
+        # -->   [B, T, r]
+        # ======================================
 
         low_rank = torch.einsum(
-            "brd,bhtd->bhtr",
+            "bri,bti->btr",
             A,
             x
         )
 
+        # ======================================
+        # B @ (...)
+        #
+        # Bmat:     [B, head_dim, r]
+        # low_rank: [B, T, r]
+        #
+        # -->       [B, T, head_dim]
+        # ======================================
+
         low_rank = torch.einsum(
-            "bdr,bhtr->bhtd",
+            "bor,btr->bto",
             Bmat,
             low_rank
         )
@@ -137,8 +258,10 @@ class HyperLoRA(nn.Module):
             self.lora_scale
         )
 
-        return x + scale * low_rank
+        return scale * low_rank
+
     # end forward
+
 # end HyperLoRA
 
 # ============================================================
@@ -152,6 +275,7 @@ class MultiHeadAttentionWithAttnLoRA(nn.Module):
         d_model,
         num_heads,
         guidance_dim,
+        lora_rank=32,
         dropout=0.1
     ):
         super().__init__()
@@ -161,6 +285,7 @@ class MultiHeadAttentionWithAttnLoRA(nn.Module):
         self.d_model = d_model
         self.num_heads = num_heads
         self.head_dim = d_model // num_heads
+        self.lora_rank = lora_rank
 
         self.q_proj = nn.Linear(d_model, d_model)
         self.k_proj = nn.Linear(d_model, d_model)
@@ -168,18 +293,19 @@ class MultiHeadAttentionWithAttnLoRA(nn.Module):
 
         self.out_proj = nn.Linear(d_model, d_model)
 
+        # Use a small lora_rank (not the full head_dim) to keep parameter count low
         self.q_lora = nn.ModuleList([
-            HyperLoRA(guidance_dim, self.head_dim)
+            HyperLoRA(guidance_dim, self.d_model, self.head_dim, self.lora_rank)
             for _ in range(num_heads)
         ])
 
         self.k_lora = nn.ModuleList([
-            HyperLoRA(guidance_dim, self.head_dim)
+            HyperLoRA(guidance_dim, self.d_model, self.head_dim, self.lora_rank)
             for _ in range(num_heads)
         ])
 
         self.v_lora = nn.ModuleList([
-            HyperLoRA(guidance_dim, self.head_dim)
+            HyperLoRA(guidance_dim, self.d_model, self.head_dim, self.lora_rank)
             for _ in range(num_heads)
         ])
 
@@ -242,11 +368,11 @@ class MultiHeadAttentionWithAttnLoRA(nn.Module):
             q_h = Q[:, h:h+1]
             k_h = K[:, h:h+1]
             v_h = V[:, h:h+1]
-
+            
             if z_g is not None:
-                q_h = self.q_lora[h](q_h, z_g)
-                k_h = self.k_lora[h](k_h, z_g)
-                v_h = self.v_lora[h](v_h, z_g)
+                q_h = q_h + self.q_lora[h](x, z_g).unsqueeze(1)
+                k_h = k_h + self.k_lora[h](x, z_g).unsqueeze(1)
+                v_h = v_h + self.v_lora[h](x, z_g).unsqueeze(1)
             
             q_heads.append(q_h)
             k_heads.append(k_h)
@@ -323,6 +449,7 @@ class TransformerBlockWithAttnLoRA(nn.Module):
         num_heads,
         ff_dim,
         guidance_dim,
+        lora_rank=32,
         dropout=0.1
     ):
         super().__init__()
@@ -331,6 +458,7 @@ class TransformerBlockWithAttnLoRA(nn.Module):
             d_model=d_model,
             num_heads=num_heads,
             guidance_dim=guidance_dim,
+            lora_rank=lora_rank,
             dropout=dropout
         )
 
@@ -391,7 +519,8 @@ class LoRASEModel(nn.Module):
         dim_feedforward=2048,
         pianoroll_dim=13,
         grid_length=80,
-        dropout=0.3
+        dropout=0.3,
+        lora_rank=32
     ):
         super().__init__()
 
@@ -445,6 +574,7 @@ class LoRASEModel(nn.Module):
                 num_heads=nhead,
                 ff_dim=dim_feedforward,
                 guidance_dim=guidance_dim,
+                lora_rank=lora_rank,
                 dropout=dropout
             )
             for _ in range(num_layers)

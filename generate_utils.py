@@ -194,7 +194,7 @@ def save_harmonized_score(score, title="Harmonized Piece", out_path="harmonized.
 def load_FiLMSEModel(
         tokenizer,
         device,
-        guidance_dim=128,
+        guidance_dim=512,
         d_model=512,
         checkpoint_path=None,
     ):
@@ -222,7 +222,7 @@ def load_FiLMSEModel(
 def load_LoRASEModel(
         tokenizer,
         device,
-        guidance_dim=128,
+        guidance_dim=512,
         d_model=512,
         checkpoint_path=None,
     ):
@@ -239,7 +239,9 @@ def load_LoRASEModel(
     if checkpoint_path is not None:
         checkpoint = torch.load(checkpoint_path, map_location=device)
     else:
-        checkpoint = torch.load(f'saved_models/LoRA_pretrained/pretrained_epoch203_nvis2.pt', map_location=device)
+        checkpoint = torch.load(f'saved_models/LoRA_pretrained/pretrained_epoch177_nvis30.pt', map_location=device)
+        # checkpoint = torch.load(f'saved_models/LoRA_pretrained/pretrained_epoch203_nvis2.pt', map_location=device)
+        # checkpoint = torch.load(f'saved_models/LoRA_pretrained/pretrained.pt', map_location=device)
     transformer_model.load_state_dict(checkpoint)
     transformer_model.to(device)
     transformer_model.eval()
@@ -249,7 +251,7 @@ def load_LoRASEModel(
 def load_FiLMLoRASEModel(
         tokenizer,
         device,
-        guidance_dim=128,
+        guidance_dim=512,
         d_model=512,
         checkpoint_path=None,
     ):
@@ -276,7 +278,7 @@ def load_FiLMLoRASEModel(
 def load_HyperNetworkSEModel(
         tokenizer,
         device,
-        guidance_dim=128,
+        guidance_dim=512,
         d_model=512,
         checkpoint_path=None,
     ):

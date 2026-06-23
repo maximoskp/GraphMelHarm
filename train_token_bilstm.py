@@ -146,8 +146,8 @@ def main():
             train_d_wikifonia = pickle.load(f)
         with open(val_wikifonia, 'rb') as f:
             val_d_wikifonia = pickle.load(f)
-        train_dataset_wikifonia = TokenBiLSTMDataset(train_d_wikifonia, tokenizer, transformer_model, include_melody=use_melody)
-        val_dataset_wikifonia = TokenBiLSTMDataset(val_d_wikifonia, tokenizer, transformer_model, include_melody=use_melody)
+        train_dataset_wikifonia = TokenBiLSTMDataset(train_d_wikifonia, tokenizer, include_melody=use_melody)
+        val_dataset_wikifonia = TokenBiLSTMDataset(val_d_wikifonia, tokenizer, include_melody=use_melody)
         concat_train.append(train_dataset_wikifonia)
         concat_val.append(val_dataset_wikifonia)
 
@@ -160,10 +160,10 @@ def main():
     logits_loss_fn = CrossEntropyLoss(ignore_index=-100)
 
     # optimizer = AdamW(transformer_model.film_parameters(), lr=lr)
-    optimizer = AdamW(transformer_model.parameters(), lr=lr)
+    optimizer = AdamW(list(transformer_model.parameters()) + list(bilstm_model.parameters()), lr=lr)
 
     # save results
-    results_path = os.path.join( 'results', version, 'token_bilstm' + '_mel'*use_melody + '.csv' )
+    results_path = os.path.join( 'results', version, 'token_bilstm' + '_mel'*use_melody + '_' + datasets + '.csv' )
     os.makedirs('results', exist_ok=True)
     os.makedirs(f'results/{version}', exist_ok=True)
 
@@ -171,8 +171,8 @@ def main():
     os.makedirs('saved_models/', exist_ok=True)
     os.makedirs(f'saved_models/{version}/', exist_ok=True)
     os.makedirs(f'saved_models/{version}/token_bilstm/', exist_ok=True)
-    transformer_path = save_dir + f'transformer_model' + '_mel'*use_melody + '.pt'
-    bilstm_model_path = save_dir + f'bilstm_model' + '_mel'*use_melody + '.pt'
+    transformer_path = save_dir + f'transformer_model' + '_mel'*use_melody + '_' + datasets + '.pt'
+    bilstm_model_path = save_dir + f'bilstm_model' + '_mel'*use_melody + '_' + datasets + '.pt'
 
     train_bilstm_loop(
         transformer_model, bilstm_model, 
