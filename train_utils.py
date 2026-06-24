@@ -9,6 +9,7 @@ import csv
 import numpy as np
 import os
 from transformers import get_cosine_schedule_with_warmup
+import sys
 
 perplexity_metric = Perplexity(ignore_index=-100)
 
@@ -1217,6 +1218,7 @@ def train_bilstm_loop(
                 real_guide_z = bilstm_model(batch['real_bilstm'].to(device), batch['real_lengths'].to(device))
                 real_constraints = batch['real_harmony_ids'].clone()
                 real_constraints[batch['mask_token_positions']] = mask_token_id
+
 
                 random_guide_z = bilstm_model(batch['random_bilstm'].to(device), batch['random_lengths'].to(device))
                 random_constraints = batch['random_harmony_ids'].clone()

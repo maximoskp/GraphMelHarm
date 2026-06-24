@@ -723,9 +723,9 @@ def token_bilstm_collate_fn(batch):
 
         'pianoroll': pianorolls,
 
-        'real_harmony_ids': real_harmony_ids.squeeze(),
-        # 'recomposed_harmony_ids': recomposed_harmony_ids.squeeze(),
-        'random_harmony_ids': random_harmony_ids.squeeze(),
+        'real_harmony_ids': real_harmony_ids.squeeze(1),
+        # 'recomposed_harmony_ids': recomposed_harmony_ids,
+        'random_harmony_ids': random_harmony_ids.squeeze(1),
 
         'real_bilstm': real_bilstm,
         'real_lengths': real_lengths,
