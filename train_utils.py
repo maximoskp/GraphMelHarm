@@ -690,8 +690,10 @@ def validation_graph_loop(
         real_train_loss,
         recomposed_train_loss,
         contrastive_train_loss,
-        real_accuracy,
-        recomposed_accuracy,
+        real_train_accuracy,
+        recomposed_train_accuracy,
+        real_train_top5,
+        recomposed_train_top5,
         best_val_loss, saving_version,
         results_path=None, transformer_path=None, 
         graph_model_path=None, tqdm_position=0
@@ -713,6 +715,11 @@ def validation_graph_loop(
         running_real_accuracy = 0
         recomposed_val_accuracy = 0
         running_recomposed_accuracy = 0
+
+        real_val_top5 = 0
+        running_real_top5 = 0
+        recomposed_val_top5 = 0
+        running_recomposed_top5 = 0
 
         batch_num = 0
         print('validation')
@@ -774,32 +781,36 @@ def validation_graph_loop(
                 val_contra_loss = running_contra_loss/batch_num
 
                 # accuracy
+                real_predictions = real_logits.argmax(dim=-1)
+                recomposed_predictions = recomposed_logits.argmax(dim=-1)
+                mask_acc = batch['real_harmony_ids'] != -100
+                running_real_accuracy += (real_predictions[mask_acc] == batch['real_harmony_ids'][mask_acc].to(device)).sum().item()/max(1,mask_acc.sum().item())
+                real_val_accuracy = running_real_accuracy/batch_num
+                running_recomposed_accuracy += (recomposed_predictions[mask_acc] == batch['recomposed_harmony_ids'][mask_acc].to(device)).sum().item()/max(1,mask_acc.sum().item())
+                recomposed_val_accuracy = running_recomposed_accuracy/batch_num
+
+                # top5
                 k = 5
-                # real_predictions = real_logits.argmax(dim=-1)
 
                 topk_real = torch.topk(real_logits, k, dim=-1).indices
                 real_target = batch['real_harmony_ids'].to(device).unsqueeze(-1)
                 correct_topk_real = (topk_real == real_target).any(dim=-1)
 
-                # recomposed_predictions = recomposed_logits.argmax(dim=-1)
                 topk_recomposed = torch.topk(recomposed_logits, k, dim=-1).indices
                 recomposed_target = batch['recomposed_harmony_ids'].to(device).unsqueeze(-1)
                 correct_topk_recomposed = (topk_recomposed == recomposed_target).any(dim=-1)
 
-                # mask = torch.logical_and(harmony_target != harmony_input, harmony_target != -100)
                 mask = batch['mask_token_positions'].to(device)
-                # running_real_accuracy += (real_predictions[mask] == batch['real_harmony_ids'].to(device)[mask]).sum().item()/max(1,mask.sum().item())
-                running_real_accuracy += correct_topk_real[mask].sum().item() / max(1, mask.sum().item())
-                real_val_accuracy = running_real_accuracy/batch_num
+                running_real_top5 += correct_topk_real[mask].sum().item() / max(1, mask.sum().item())
+                real_val_top5 = running_real_top5/batch_num
 
-                # running_recomposed_accuracy += (recomposed_predictions[mask] == batch['recomposed_harmony_ids'].to(device)[mask]).sum().item()/max(1,mask.sum().item())
-                running_recomposed_accuracy += correct_topk_recomposed[mask].sum().item() / max(1, mask.sum().item())
-                recomposed_val_accuracy = running_recomposed_accuracy/batch_num
+                running_recomposed_top5 += correct_topk_recomposed[mask].sum().item() / max(1, mask.sum().item())
+                recomposed_val_top5 = running_recomposed_top5/batch_num
 
                 tepoch.set_postfix(
                     loss=total_val_loss,
                     acc_real=real_val_accuracy,
-                    acc_rnd=recomposed_val_accuracy
+                    acc_rcn=recomposed_val_accuracy
                 )
             # end for batch
         # end with tqdm
@@ -818,9 +829,9 @@ def validation_graph_loop(
             writer = csv.writer(f)
             writer.writerow( [epoch, step, \
                         total_train_loss, real_train_loss,  recomposed_train_loss, contrastive_train_loss, \
-                        real_accuracy, recomposed_accuracy, \
+                        real_train_accuracy, recomposed_train_accuracy, real_train_top5, recomposed_train_top5, \
                         total_val_loss, real_val_loss,  recomposed_val_loss, val_contra_loss, \
-                        real_val_accuracy, recomposed_val_accuracy, \
+                        real_val_accuracy, recomposed_val_accuracy, real_val_top5, recomposed_val_top5, \
                         saving_version] )
     return best_val_loss, saving_version
 # end validation_graph_loop
@@ -849,10 +860,12 @@ def train_graph_loop(
     print('results_path:', results_path)
     if results_path is not None:
         result_fields = ['epoch', 'step', \
-                        'total_train_loss', 'real_train_loss',  'recomposed_train_loss', 'contra_train_loss', \
-                        'real_train_acc', 'recomposed_train_acc', \
-                        'total_val_loss', 'real_val_loss',  'recomposed_val_loss', 'contra_val_loss', \
-                        'real_val_acc', 'recomposed_val_acc', \
+                        'total_train_loss', 'real_train_loss',  'rec_train_loss', 'contra_train_loss', \
+                        'real_train_acc', 'rec_train_acc', \
+                        'real_train_top5', 'rec_train_top5', \
+                        'total_val_loss', 'real_val_loss',  'rec_val_loss', 'contra_val_loss', \
+                        'real_val_acc', 'rec_val_acc', \
+                        'real_val_top5', 'rec_val_top5', \
                         'sav_version']
         with open( results_path, 'w' ) as f:
             writer = csv.writer(f)
@@ -879,6 +892,11 @@ def train_graph_loop(
         running_real_accuracy = 0
         recomposed_accuracy = 0
         running_recomposed_accuracy = 0
+
+        real_top5 = 0
+        running_real_top5 = 0
+        recomposed_top5 = 0
+        running_recomposed_top5 = 0
 
         batch_num = 0
         
@@ -949,32 +967,36 @@ def train_graph_loop(
                 contra_train_loss = running_contra_loss/batch_num
 
                 # accuracy
+                real_predictions = real_logits.argmax(dim=-1)
+                recomposed_predictions = recomposed_logits.argmax(dim=-1)
+                mask_acc = batch['real_harmony_ids'] != -100
+                running_real_accuracy += (real_predictions[mask_acc] == batch['real_harmony_ids'][mask_acc].to(device)).sum().item()/max(1,mask_acc.sum().item())
+                real_accuracy = running_real_accuracy/batch_num
+                running_recomposed_accuracy += (recomposed_predictions[mask_acc] == batch['recomposed_harmony_ids'][mask_acc].to(device)).sum().item()/max(1,mask_acc.sum().item())
+                recomposed_accuracy = running_recomposed_accuracy/batch_num
+
+                # top5
                 k = 5
-                # real_predictions = real_logits.argmax(dim=-1)
 
                 topk_real = torch.topk(real_logits, k, dim=-1).indices
                 real_target = batch['real_harmony_ids'].to(device).unsqueeze(-1)
                 correct_topk_real = (topk_real == real_target).any(dim=-1)
 
-                # recomposed_predictions = recomposed_logits.argmax(dim=-1)
                 topk_recomposed = torch.topk(recomposed_logits, k, dim=-1).indices
                 recomposed_target = batch['recomposed_harmony_ids'].to(device).unsqueeze(-1)
                 correct_topk_recomposed = (topk_recomposed == recomposed_target).any(dim=-1)
 
-                # mask = torch.logical_and(harmony_target != harmony_input, harmony_target != -100)
                 mask = batch['mask_token_positions'].to(device)
-                # running_real_accuracy += (real_predictions[mask] == batch['real_harmony_ids'].to(device)[mask]).sum().item()/max(1,mask.sum().item())
-                running_real_accuracy += correct_topk_real[mask].sum().item() / max(1, mask.sum().item())
-                real_accuracy = running_real_accuracy/batch_num
+                running_real_top5 += correct_topk_real[mask].sum().item() / max(1, mask.sum().item())
+                real_top5 = running_real_top5/batch_num
 
-                # running_recomposed_accuracy += (recomposed_predictions[mask] == batch['recomposed_harmony_ids'].to(device)[mask]).sum().item()/max(1,mask.sum().item())
-                running_recomposed_accuracy += correct_topk_recomposed[mask].sum().item() / max(1, mask.sum().item())
-                recomposed_accuracy = running_recomposed_accuracy/batch_num
+                running_recomposed_top5 += correct_topk_recomposed[mask].sum().item() / max(1, mask.sum().item())
+                recomposed_top5 = running_recomposed_top5/batch_num
 
                 tepoch.set_postfix(
                     loss=total_train_loss,
                     acc_real=real_accuracy,
-                    acc_rnd=recomposed_accuracy
+                    acc_rcn=recomposed_accuracy
                 )
                 step += 1
                 if step%(total_steps//(epochs*validations_per_epoch)) == 0 or step == total_steps:
@@ -991,6 +1013,8 @@ def train_graph_loop(
                         contra_train_loss,
                         real_accuracy,
                         recomposed_accuracy,
+                        real_top5,
+                        recomposed_top5,
                         best_val_loss, saving_version,
                         results_path=results_path,
                         transformer_path=transformer_path,
@@ -1017,8 +1041,10 @@ def validation_bilstm_loop(
         real_train_loss,
         recomposed_train_loss,
         contrastive_train_loss,
-        real_accuracy,
-        recomposed_accuracy,
+        real_train_accuracy,
+        recomposed_train_accuracy,
+        real_train_top5,
+        recomposed_train_top5,
         best_val_loss, saving_version,
         results_path=None, transformer_path=None, 
         bilstm_model_path=None, tqdm_position=0
@@ -1040,6 +1066,11 @@ def validation_bilstm_loop(
         running_real_accuracy = 0
         recomposed_val_accuracy = 0
         running_recomposed_accuracy = 0
+
+        real_val_top5 = 0
+        running_real_top5 = 0
+        recomposed_val_top5 = 0
+        running_recomposed_top5 = 0
 
         batch_num = 0
         print('validation')
@@ -1101,32 +1132,36 @@ def validation_bilstm_loop(
                 val_contra_loss = running_contra_loss/batch_num
 
                 # accuracy
+                real_predictions = real_logits.argmax(dim=-1)
+                recomposed_predictions = recomposed_logits.argmax(dim=-1)
+                mask_acc = batch['real_harmony_ids'] != -100
+                running_real_accuracy += (real_predictions[mask_acc] == batch['real_harmony_ids'][mask_acc].to(device)).sum().item()/max(1,mask_acc.sum().item())
+                real_val_accuracy = running_real_accuracy/batch_num
+                running_recomposed_accuracy += (recomposed_predictions[mask_acc] == batch['recomposed_harmony_ids'][mask_acc].to(device)).sum().item()/max(1,mask_acc.sum().item())
+                recomposed_val_accuracy = running_recomposed_accuracy/batch_num
+
+                # top5
                 k = 5
-                # real_predictions = real_logits.argmax(dim=-1)
 
                 topk_real = torch.topk(real_logits, k, dim=-1).indices
                 real_target = batch['real_harmony_ids'].to(device).unsqueeze(-1)
                 correct_topk_real = (topk_real == real_target).any(dim=-1)
 
-                # recomposed_predictions = recomposed_logits.argmax(dim=-1)
                 topk_recomposed = torch.topk(recomposed_logits, k, dim=-1).indices
                 recomposed_target = batch['recomposed_harmony_ids'].to(device).unsqueeze(-1)
                 correct_topk_recomposed = (topk_recomposed == recomposed_target).any(dim=-1)
 
-                # mask = torch.logical_and(harmony_target != harmony_input, harmony_target != -100)
                 mask = batch['mask_token_positions'].to(device)
-                # running_real_accuracy += (real_predictions[mask] == batch['real_harmony_ids'].to(device)[mask]).sum().item()/max(1,mask.sum().item())
-                running_real_accuracy += correct_topk_real[mask].sum().item() / max(1, mask.sum().item())
-                real_val_accuracy = running_real_accuracy/batch_num
+                running_real_top5 += correct_topk_real[mask].sum().item() / max(1, mask.sum().item())
+                real_val_top5 = running_real_top5/batch_num
 
-                # running_recomposed_accuracy += (recomposed_predictions[mask] == batch['recomposed_harmony_ids'].to(device)[mask]).sum().item()/max(1,mask.sum().item())
-                running_recomposed_accuracy += correct_topk_recomposed[mask].sum().item() / max(1, mask.sum().item())
-                recomposed_val_accuracy = running_recomposed_accuracy/batch_num
+                running_recomposed_top5 += correct_topk_recomposed[mask].sum().item() / max(1, mask.sum().item())
+                recomposed_val_top5 = running_recomposed_top5/batch_num
 
                 tepoch.set_postfix(
                     loss=total_val_loss,
                     acc_real=real_val_accuracy,
-                    acc_rnd=recomposed_val_accuracy
+                    acc_rcn=recomposed_val_accuracy
                 )
             # end for batch
         # end with tqdm
@@ -1145,9 +1180,9 @@ def validation_bilstm_loop(
             writer = csv.writer(f)
             writer.writerow( [epoch, step, \
                         total_train_loss, real_train_loss,  recomposed_train_loss, contrastive_train_loss, \
-                        real_accuracy, recomposed_accuracy, \
+                        real_train_accuracy, recomposed_train_accuracy, real_train_top5, recomposed_train_top5, \
                         total_val_loss, real_val_loss,  recomposed_val_loss, val_contra_loss, \
-                        real_val_accuracy, recomposed_val_accuracy, \
+                        real_val_accuracy, recomposed_val_accuracy, real_val_top5, recomposed_val_top5, \
                         saving_version] )
     return best_val_loss, saving_version
 # end validation_bilstm_loop
@@ -1176,10 +1211,12 @@ def train_bilstm_loop(
     print('results_path:', results_path)
     if results_path is not None:
         result_fields = ['epoch', 'step', \
-                        'total_train_loss', 'real_train_loss',  'recomposed_train_loss', 'contra_train_loss', \
-                        'real_train_acc', 'recomposed_train_acc', \
-                        'total_val_loss', 'real_val_loss',  'recomposed_val_loss', 'contra_val_loss', \
-                        'real_val_acc', 'recomposed_val_acc', \
+                        'total_train_loss', 'real_train_loss',  'rec_train_loss', 'contra_train_loss', \
+                        'real_train_acc', 'rec_train_acc', \
+                        'real_train_top5', 'rec_train_top5', \
+                        'total_val_loss', 'real_val_loss',  'rec_val_loss', 'contra_val_loss', \
+                        'real_val_acc', 'rec_val_acc', \
+                        'real_val_top5', 'rec_val_top5', \
                         'sav_version']
         with open( results_path, 'w' ) as f:
             writer = csv.writer(f)
@@ -1206,6 +1243,11 @@ def train_bilstm_loop(
         running_real_accuracy = 0
         recomposed_accuracy = 0
         running_recomposed_accuracy = 0
+
+        real_top5 = 0
+        running_real_top5 = 0
+        recomposed_top5 = 0
+        running_recomposed_top5 = 0
 
         batch_num = 0
         
@@ -1277,32 +1319,36 @@ def train_bilstm_loop(
                 contra_train_loss = running_contra_loss/batch_num
 
                 # accuracy
+                real_predictions = real_logits.argmax(dim=-1)
+                recomposed_predictions = recomposed_logits.argmax(dim=-1)
+                mask_acc = batch['real_harmony_ids'] != -100
+                running_real_accuracy += (real_predictions[mask_acc] == batch['real_harmony_ids'][mask_acc].to(device)).sum().item()/max(1,mask_acc.sum().item())
+                real_accuracy = running_real_accuracy/batch_num
+                running_recomposed_accuracy += (recomposed_predictions[mask_acc] == batch['recomposed_harmony_ids'][mask_acc].to(device)).sum().item()/max(1,mask_acc.sum().item())
+                recomposed_accuracy = running_recomposed_accuracy/batch_num
+
+                # top5
                 k = 5
 
-                # real_predictions = real_logits.argmax(dim=-1)
                 topk_real = torch.topk(real_logits, k, dim=-1).indices
                 real_target = batch['real_harmony_ids'].to(device).unsqueeze(-1)
                 correct_topk_real = (topk_real == real_target).any(dim=-1)
 
-                # recomposed_predictions = recomposed_logits.argmax(dim=-1)
                 topk_recomposed = torch.topk(recomposed_logits, k, dim=-1).indices
                 recomposed_target = batch['recomposed_harmony_ids'].to(device).unsqueeze(-1)
                 correct_topk_recomposed = (topk_recomposed == recomposed_target).any(dim=-1)
 
-                # mask = torch.logical_and(harmony_target != harmony_input, harmony_target != -100)
                 mask = batch['mask_token_positions'].to(device)
-                # running_real_accuracy += (real_predictions[mask] == batch['real_harmony_ids'].to(device)[mask]).sum().item()/max(1,mask.sum().item())
-                running_real_accuracy += correct_topk_real[mask].sum().item() / max(1, mask.sum().item())
-                real_accuracy = running_real_accuracy/batch_num
+                running_real_top5 += correct_topk_real[mask].sum().item() / max(1, mask.sum().item())
+                real_top5 = running_real_top5/batch_num
 
-                # running_recomposed_accuracy += (recomposed_predictions[mask] == batch['recomposed_harmony_ids'].to(device)[mask]).sum().item()/max(1,mask.sum().item())
-                running_recomposed_accuracy += correct_topk_recomposed[mask].sum().item() / max(1, mask.sum().item())
-                recomposed_accuracy = running_recomposed_accuracy/batch_num
+                running_recomposed_top5 += correct_topk_recomposed[mask].sum().item() / max(1, mask.sum().item())
+                recomposed_top5 = running_recomposed_top5/batch_num
 
                 tepoch.set_postfix(
                     loss=total_train_loss,
                     acc_real=real_accuracy,
-                    acc_rnd=recomposed_accuracy
+                    acc_rcn=recomposed_accuracy
                 )
                 step += 1
                 if step%(total_steps//(epochs*validations_per_epoch)) == 0 or step == total_steps:
@@ -1319,6 +1365,8 @@ def train_bilstm_loop(
                         contra_train_loss,
                         real_accuracy,
                         recomposed_accuracy,
+                        real_top5,
+                        recomposed_top5,
                         best_val_loss, saving_version,
                         results_path=results_path,
                         transformer_path=transformer_path,
