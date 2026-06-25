@@ -6,6 +6,7 @@ import torch
 from torch_geometric.data import HeteroData
 from tqdm import tqdm
 import ast
+from generate_utils import nucleus_token_by_token_generate
 
 tokenizer = CSGridMLMTokenizer(
     fixed_length=80,
@@ -19,13 +20,16 @@ tokenizer = CSGridMLMTokenizer(
 chord_features = GridMLM_tokenizers.CHORD_FEATURES
 chord_id_features = {tokenizer.vocab[k]: v for k, v in chord_features.items()}
 
-def append_graph_ready_object_to_dataset(ds, include_melody=False):
+def append_graph_ready_object_to_dataset(ds, include_melody=False, synthesize_segments=False, model=None):
     new_ds = []
     for i in tqdm(range(len(ds))):
         # print(f"Processing dataset item {i+1}/{len(ds)}", end='\r')
         d = ds[i]
         graph_ready_object = make_graph_ready_for_dataset_item(d, tokenizer, include_melody=include_melody)
         d['graph_ready_object'] = graph_ready_object
+        if synthesize_segments and model is not None:
+            segs = make_real_and_recomposed_segments(d, 2, 1, 3., model, include_melody=include_melody)
+            d['segments'] = segs
         new_ds.append(d)
     return new_ds
 # end append_graph_ready_object_to_dataset
@@ -37,6 +41,82 @@ def make_graph_ready_for_dataset_item(d, tokenizer, include_melody=False):
     bar_objects = make_bar_objects(bars, include_melody=include_melody)
     return MelodicHarmonization(bar_objects)
 # end make_graph_ready_for_dataset_item
+
+def make_real_and_recomposed_segments(d, seg_len, seg_step, temperature, model, include_melody=False):
+    segs = []
+    bar_start, bar_end = 0, seg_len
+    while bar_end < d['graph_ready_object'].num_bars:
+        try:
+            d['graph_ready_object'].make_graph_of_segment(bar_start, bar_end)
+            real_graph = d['graph_ready_object'].segment_graph
+            d['graph_ready_object'].make_bilstm_seq_of_segment(bar_start, bar_end)
+            real_bilstm = d['graph_ready_object'].segment_bilstm
+
+            # get token positions for recomposition and randomization
+            token_positions = d['graph_ready_object'].get_token_positions_of_bar_segment()
+            mask_token_positions = np.zeros(len(d['harmony_ids']), dtype=bool)
+            mask_token_positions[token_positions] = True
+            # mask the tokens in the segment
+            masked_tokens = np.array(d['harmony_ids'])
+            masked_tokens[token_positions] = tokenizer.mask_token_id
+            masked_tokens = masked_tokens.tolist()
+            # prepare inputs for recomposition
+            melody_grid = torch.tensor(d['pianoroll'], dtype=torch.float32).unsqueeze(0)
+            harmony_ids = torch.tensor(d['harmony_ids'], dtype=torch.long).unsqueeze(0)
+            masked_tokens_tensor = torch.tensor(masked_tokens, dtype=torch.long).unsqueeze(0)
+            # token_bilstm
+            real_ids_segment = torch.tensor(np.asarray(d['harmony_ids'])[mask_token_positions], dtype=torch.long)
+            # recomposition
+            # # recomposed view
+            temperature = 1.0 + np.random.rand() * 3.0
+            recomposed_harmony_ids = nucleus_token_by_token_generate(
+                model=model,
+                melody_grid=melody_grid.to(model.device),
+                guidance_vector=None,
+                mask_token_id=tokenizer.mask_token_id,
+                chord_constraints=masked_tokens_tensor.to(model.device),
+                pad_token_id=tokenizer.pad_token_id,
+                nc_token_id=tokenizer.nc_token_id,
+                temperature=temperature,
+            )
+            # re-make dataset item for constructing graph
+            d_recomposed = d.copy()
+            d_recomposed['harmony_ids'] = recomposed_harmony_ids.squeeze(0).cpu().numpy().tolist()
+            graph_ready_object = make_graph_ready_for_dataset_item(d_recomposed, tokenizer, include_melody)
+            d_recomposed['graph_ready_object'] = graph_ready_object
+            d_recomposed['graph_ready_object'].make_graph_of_segment(bar_start, bar_end)
+            recomposed_graph = d_recomposed['graph_ready_object'].segment_graph
+            d_recomposed['graph_ready_object'].make_bilstm_seq_of_segment(bar_start, bar_end)
+            recomposed_bilstm = d_recomposed['graph_ready_object'].segment_bilstm
+            recomposed_ids_segment = torch.tensor(np.asarray(d_recomposed['harmony_ids'])[mask_token_positions], dtype=torch.long)
+            
+            tmp_segment = {
+                'bar_start': bar_start,
+                'bar_end': bar_end,
+                'mask_token_positions': mask_token_positions.tolist(),
+                'pianoroll': d['pianoroll'],
+            }
+            tmp_real = {
+                'real_harmony_ids': d['harmony_ids'],
+                'real_graph': real_graph,
+                'real_bilstm': real_bilstm,
+                'real_ids_segment': real_ids_segment
+            }
+            tmp_recomposed = {
+                'recomposed_harmony_ids': d_recomposed['harmony_ids'],
+                'recomposed_graph': recomposed_graph,
+                'recomposed_bilstm': recomposed_bilstm,
+                'recomposed_ids_segment': recomposed_ids_segment
+            }
+            tmp_segment['real_segment'] = tmp_real
+            tmp_segment['recomposed_segment'] = tmp_recomposed
+            segs.append(tmp_segment)
+        except:
+            print('problem in segment')
+        bar_start += seg_step
+        bar_end = bar_start + seg_len
+    return segs
+# end make_real_and_recomposed_segments
 
 def make_graph_ready_for_token_ids(harmony_token_ids, tokenizer):
     bars = bar_split(harmony_token_ids, None, tokenizer)

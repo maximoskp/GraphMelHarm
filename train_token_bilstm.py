@@ -29,6 +29,7 @@ def main():
     parser.add_argument('-v', '--version', type=str, help=f'Specify the model version. Available: {model_version_loaders.keys()}', required=True)
     parser.add_argument('-d', '--datasets', type=str, help='Specify datasets to train on. Provide letters in jnhw', required=True)
     parser.add_argument('-m', '--melody', type=int, help='Specify whether melody is used - defaults to no=0.', required=False)
+    parser.add_argument('-c', '--contra', type=int, help='Specify whether contrastive loss is used - defaults to no=0.', required=False)
     parser.add_argument('-g', '--gpu', type=int, help='Specify whether and which GPU will be used by used by index. Not using this argument means use CPU.', required=False)
     parser.add_argument('-e', '--epochs', type=int, help='Specify number of epochs. Defaults to 100.', required=False)
     parser.add_argument('-l', '--learningrate', type=float, help='Specify learning rate. Defaults to 1e-5.', required=False)
@@ -49,6 +50,9 @@ def main():
     use_melody = False
     if args.melody is not None:
         use_melody = args.melody != 0
+    use_contra = False
+    if args.contra is not None:
+        use_contra = args.contra != 0
     device_name = 'cpu'
     if args.gpu is not None:
         if args.gpu > -1:
@@ -163,7 +167,7 @@ def main():
     optimizer = AdamW(list(transformer_model.parameters()) + list(bilstm_model.parameters()), lr=lr)
 
     # save results
-    results_path = os.path.join( 'results', version, 'token_bilstm' + '_mel'*use_melody + '_' + datasets + '.csv' )
+    results_path = os.path.join( 'results', version, 'token_bilstm' + '_mel'*use_melody + '_contra'*use_contra + '_' + datasets + '.csv' )
     os.makedirs('results', exist_ok=True)
     os.makedirs(f'results/{version}', exist_ok=True)
 
@@ -171,13 +175,14 @@ def main():
     os.makedirs('saved_models/', exist_ok=True)
     os.makedirs(f'saved_models/{version}/', exist_ok=True)
     os.makedirs(f'saved_models/{version}/token_bilstm/', exist_ok=True)
-    transformer_path = save_dir + f'transformer_model' + '_mel'*use_melody + '_' + datasets + '.pt'
-    bilstm_model_path = save_dir + f'bilstm_model' + '_mel'*use_melody + '_' + datasets + '.pt'
+    transformer_path = save_dir + f'transformer_model' + '_mel'*use_melody + '_contra'*use_contra + '_' + datasets + '.pt'
+    bilstm_model_path = save_dir + f'bilstm_model' + '_mel'*use_melody + '_contra'*use_contra + '_' + datasets + '.pt'
 
     train_bilstm_loop(
         transformer_model, bilstm_model, 
         logits_loss_fn,
         optimizer, train_loader, val_loader, tokenizer.mask_token_id,
+        use_contra=use_contra,
         epochs=epochs,
         results_path=results_path,
         transformer_path=transformer_path,

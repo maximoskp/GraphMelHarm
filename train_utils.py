@@ -688,10 +688,10 @@ def validation_graph_loop(
         step,
         total_train_loss,
         real_train_loss,
-        random_train_loss,
+        recomposed_train_loss,
         contrastive_train_loss,
         real_accuracy,
-        random_accuracy,
+        recomposed_accuracy,
         best_val_loss, saving_version,
         results_path=None, transformer_path=None, 
         graph_model_path=None, tqdm_position=0
@@ -704,15 +704,15 @@ def validation_graph_loop(
         total_val_loss = 0
         running_real_loss = 0
         real_val_loss = 0
-        running_random_loss = 0
-        random_val_loss = 0
+        running_recomposed_loss = 0
+        recomposed_val_loss = 0
         running_contra_loss = 0
         val_contra_loss = 0
 
         real_val_accuracy = 0
         running_real_accuracy = 0
-        random_val_accuracy = 0
-        running_random_accuracy = 0
+        recomposed_val_accuracy = 0
+        running_recomposed_accuracy = 0
 
         batch_num = 0
         print('validation')
@@ -723,9 +723,9 @@ def validation_graph_loop(
                 real_constraints = batch['real_harmony_ids'].clone()
                 real_constraints[batch['mask_token_positions']] = mask_token_id
 
-                random_guide_z = graph_model(batch['random_graph'].to(device))
-                random_constraints = batch['random_harmony_ids'].clone()
-                random_constraints[batch['mask_token_positions']] = mask_token_id
+                recomposed_guide_z = graph_model(batch['recomposed_graph'].to(device))
+                recomposed_constraints = batch['recomposed_harmony_ids'].clone()
+                recomposed_constraints[batch['mask_token_positions']] = mask_token_id
 
                 real_logits = transformer_model(
                     batch['pianoroll'].to(device),
@@ -733,33 +733,33 @@ def validation_graph_loop(
                     real_guide_z.to(device)
                 )
 
-                random_logits = transformer_model(
+                recomposed_logits = transformer_model(
                     batch['pianoroll'].to(device),
-                    random_constraints.to(device),
-                    random_guide_z.to(device)
+                    recomposed_constraints.to(device),
+                    recomposed_guide_z.to(device)
                 )
 
                 mask = batch['mask_token_positions'].to(device)
                 real_target = batch['real_harmony_ids'].clone().to(device)
                 # real_target[~mask] = -100
-                random_target = batch['random_harmony_ids'].clone().to(device)
-                # random_target[~mask] = -100
+                recomposed_target = batch['recomposed_harmony_ids'].clone().to(device)
+                # recomposed_target[~mask] = -100
 
                 real_logits_loss = logits_loss_fn(
                     real_logits.view(-1, real_logits.size(-1)),
                     real_target.view(-1)
                 )
 
-                random_logits_loss = logits_loss_fn(
-                    random_logits.view(-1, random_logits.size(-1)),
-                    random_target.view(-1)
+                recomposed_logits_loss = logits_loss_fn(
+                    recomposed_logits.view(-1, recomposed_logits.size(-1)),
+                    recomposed_target.view(-1)
                 )
 
-                contrastive_val_loss = guidance_contrastive_loss(real_guide_z, random_guide_z)
+                contrastive_val_loss = guidance_contrastive_loss(real_guide_z, recomposed_guide_z)
 
-                loss = real_logits_loss + random_logits_loss + contrastive_weight * contrastive_val_loss
-                # loss = real_logits_loss + random_logits_loss
-                # loss = random_logits_loss
+                loss = real_logits_loss + recomposed_logits_loss + contrastive_weight * contrastive_val_loss
+                # loss = real_logits_loss + recomposed_logits_loss
+                # loss = recomposed_logits_loss
 
                 # update loss and accuracy
                 # loss
@@ -768,8 +768,8 @@ def validation_graph_loop(
                 total_val_loss = running_total_loss/batch_num
                 running_real_loss += real_logits_loss.item()
                 real_val_loss = running_real_loss/batch_num
-                running_random_loss += random_logits_loss.item()
-                random_val_loss = running_random_loss/batch_num
+                running_recomposed_loss += recomposed_logits_loss.item()
+                recomposed_val_loss = running_recomposed_loss/batch_num
                 running_contra_loss += contrastive_val_loss.item()
                 val_contra_loss = running_contra_loss/batch_num
 
@@ -781,10 +781,10 @@ def validation_graph_loop(
                 real_target = batch['real_harmony_ids'].to(device).unsqueeze(-1)
                 correct_topk_real = (topk_real == real_target).any(dim=-1)
 
-                # random_predictions = random_logits.argmax(dim=-1)
-                topk_random = torch.topk(random_logits, k, dim=-1).indices
-                random_target = batch['random_harmony_ids'].to(device).unsqueeze(-1)
-                correct_topk_random = (topk_random == random_target).any(dim=-1)
+                # recomposed_predictions = recomposed_logits.argmax(dim=-1)
+                topk_recomposed = torch.topk(recomposed_logits, k, dim=-1).indices
+                recomposed_target = batch['recomposed_harmony_ids'].to(device).unsqueeze(-1)
+                correct_topk_recomposed = (topk_recomposed == recomposed_target).any(dim=-1)
 
                 # mask = torch.logical_and(harmony_target != harmony_input, harmony_target != -100)
                 mask = batch['mask_token_positions'].to(device)
@@ -792,14 +792,14 @@ def validation_graph_loop(
                 running_real_accuracy += correct_topk_real[mask].sum().item() / max(1, mask.sum().item())
                 real_val_accuracy = running_real_accuracy/batch_num
 
-                # running_random_accuracy += (random_predictions[mask] == batch['random_harmony_ids'].to(device)[mask]).sum().item()/max(1,mask.sum().item())
-                running_random_accuracy += correct_topk_random[mask].sum().item() / max(1, mask.sum().item())
-                random_val_accuracy = running_random_accuracy/batch_num
+                # running_recomposed_accuracy += (recomposed_predictions[mask] == batch['recomposed_harmony_ids'].to(device)[mask]).sum().item()/max(1,mask.sum().item())
+                running_recomposed_accuracy += correct_topk_recomposed[mask].sum().item() / max(1, mask.sum().item())
+                recomposed_val_accuracy = running_recomposed_accuracy/batch_num
 
                 tepoch.set_postfix(
                     loss=total_val_loss,
                     acc_real=real_val_accuracy,
-                    acc_rnd=random_val_accuracy
+                    acc_rnd=recomposed_val_accuracy
                 )
             # end for batch
         # end with tqdm
@@ -811,16 +811,16 @@ def validation_graph_loop(
             best_val_loss = total_val_loss
             torch.save(transformer_model.state_dict(), transformer_path)
             torch.save(graph_model.state_dict(), graph_model_path)
-    print(f'validation: loss={total_val_loss}, acc_real={real_val_accuracy}, acc_rnd={random_val_accuracy}')
+    print(f'validation: loss={total_val_loss}, acc_real={real_val_accuracy}, acc_rnd={recomposed_val_accuracy}')
     print('results_path: ', results_path)
     if results_path is not None:
         with open( results_path, 'a' ) as f:
             writer = csv.writer(f)
             writer.writerow( [epoch, step, \
-                        total_train_loss, real_train_loss,  random_train_loss, contrastive_train_loss, \
-                        real_accuracy, random_accuracy, \
-                        total_val_loss, real_val_loss,  random_val_loss, val_contra_loss, \
-                        real_val_accuracy, random_val_accuracy, \
+                        total_train_loss, real_train_loss,  recomposed_train_loss, contrastive_train_loss, \
+                        real_accuracy, recomposed_accuracy, \
+                        total_val_loss, real_val_loss,  recomposed_val_loss, val_contra_loss, \
+                        real_val_accuracy, recomposed_val_accuracy, \
                         saving_version] )
     return best_val_loss, saving_version
 # end validation_graph_loop
@@ -829,6 +829,7 @@ def train_graph_loop(
         transformer_model, graph_model,
         logits_loss_fn,
         optimizer, trainloader, valloader, mask_token_id,
+        use_contra=False,
         epochs=100,
         results_path=None,
         transformer_path=None,
@@ -848,10 +849,10 @@ def train_graph_loop(
     print('results_path:', results_path)
     if results_path is not None:
         result_fields = ['epoch', 'step', \
-                        'total_train_loss', 'real_train_loss',  'random_train_loss', 'contra_train_loss', \
-                        'real_train_acc', 'random_train_acc', \
-                        'total_val_loss', 'real_val_loss',  'random_val_loss', 'contra_val_loss', \
-                        'real_val_acc', 'random_val_acc', \
+                        'total_train_loss', 'real_train_loss',  'recomposed_train_loss', 'contra_train_loss', \
+                        'real_train_acc', 'recomposed_train_acc', \
+                        'total_val_loss', 'real_val_loss',  'recomposed_val_loss', 'contra_val_loss', \
+                        'real_val_acc', 'recomposed_val_acc', \
                         'sav_version']
         with open( results_path, 'w' ) as f:
             writer = csv.writer(f)
@@ -869,15 +870,15 @@ def train_graph_loop(
         total_train_loss = 0
         running_real_loss = 0
         real_train_loss = 0
-        running_random_loss = 0
-        random_train_loss = 0
+        running_recomposed_loss = 0
+        recomposed_train_loss = 0
         running_contra_loss = 0
         contra_train_loss = 0
 
         real_accuracy = 0
         running_real_accuracy = 0
-        random_accuracy = 0
-        running_random_accuracy = 0
+        recomposed_accuracy = 0
+        running_recomposed_accuracy = 0
 
         batch_num = 0
         
@@ -893,9 +894,9 @@ def train_graph_loop(
                 real_constraints = batch['real_harmony_ids'].clone()
                 real_constraints[batch['mask_token_positions']] = mask_token_id
 
-                random_guide_z = graph_model(batch['random_graph'].to(device))
-                random_constraints = batch['random_harmony_ids'].clone()
-                random_constraints[batch['mask_token_positions']] = mask_token_id
+                recomposed_guide_z = graph_model(batch['recomposed_graph'].to(device))
+                recomposed_constraints = batch['recomposed_harmony_ids'].clone()
+                recomposed_constraints[batch['mask_token_positions']] = mask_token_id
 
                 real_logits = transformer_model(
                     batch['pianoroll'].to(device),
@@ -903,34 +904,34 @@ def train_graph_loop(
                     real_guide_z.to(device)
                 )
 
-                random_logits = transformer_model(
+                recomposed_logits = transformer_model(
                     batch['pianoroll'].to(device),
-                    random_constraints.to(device),
-                    random_guide_z.to(device)
+                    recomposed_constraints.to(device),
+                    recomposed_guide_z.to(device)
                 )
 
                 mask = batch['mask_token_positions'].to(device)
                 real_target = batch['real_harmony_ids'].clone().to(device)
                 # real_target[~mask] = -100
-                random_target = batch['random_harmony_ids'].clone().to(device)
-                # random_target[~mask] = -100
+                recomposed_target = batch['recomposed_harmony_ids'].clone().to(device)
+                # recomposed_target[~mask] = -100
 
                 real_logits_loss = logits_loss_fn(
                     real_logits.view(-1, real_logits.size(-1)),
                     real_target.view(-1)
                 )
                 
-                random_logits_loss = logits_loss_fn(
-                    random_logits.view(-1, random_logits.size(-1)),
-                    random_target.view(-1)
+                recomposed_logits_loss = logits_loss_fn(
+                    recomposed_logits.view(-1, recomposed_logits.size(-1)),
+                    recomposed_target.view(-1)
                 )
 
-                contrastive_loss = guidance_contrastive_loss(real_guide_z, random_guide_z)
+                contrastive_loss = guidance_contrastive_loss(real_guide_z, recomposed_guide_z)
 
                 optimizer.zero_grad()
-                loss = real_logits_loss + random_logits_loss + contrastive_weight * contrastive_loss
-                # loss = real_logits_loss + random_logits_loss
-                # loss = random_logits_loss
+                loss = real_logits_loss + recomposed_logits_loss + use_contra * contrastive_weight * contrastive_loss
+                # loss = real_logits_loss + recomposed_logits_loss
+                # loss = recomposed_logits_loss
                 loss.backward()
                 optimizer.step()
                 # scheduler.step()
@@ -942,8 +943,8 @@ def train_graph_loop(
                 total_train_loss = running_total_loss/batch_num
                 running_real_loss += real_logits_loss.item()
                 real_train_loss = running_real_loss/batch_num
-                running_random_loss += random_logits_loss.item()
-                random_train_loss = running_random_loss/batch_num
+                running_recomposed_loss += recomposed_logits_loss.item()
+                recomposed_train_loss = running_recomposed_loss/batch_num
                 running_contra_loss += contrastive_loss.item()
                 contra_train_loss = running_contra_loss/batch_num
 
@@ -955,10 +956,10 @@ def train_graph_loop(
                 real_target = batch['real_harmony_ids'].to(device).unsqueeze(-1)
                 correct_topk_real = (topk_real == real_target).any(dim=-1)
 
-                # random_predictions = random_logits.argmax(dim=-1)
-                topk_random = torch.topk(random_logits, k, dim=-1).indices
-                random_target = batch['random_harmony_ids'].to(device).unsqueeze(-1)
-                correct_topk_random = (topk_random == random_target).any(dim=-1)
+                # recomposed_predictions = recomposed_logits.argmax(dim=-1)
+                topk_recomposed = torch.topk(recomposed_logits, k, dim=-1).indices
+                recomposed_target = batch['recomposed_harmony_ids'].to(device).unsqueeze(-1)
+                correct_topk_recomposed = (topk_recomposed == recomposed_target).any(dim=-1)
 
                 # mask = torch.logical_and(harmony_target != harmony_input, harmony_target != -100)
                 mask = batch['mask_token_positions'].to(device)
@@ -966,14 +967,14 @@ def train_graph_loop(
                 running_real_accuracy += correct_topk_real[mask].sum().item() / max(1, mask.sum().item())
                 real_accuracy = running_real_accuracy/batch_num
 
-                # running_random_accuracy += (random_predictions[mask] == batch['random_harmony_ids'].to(device)[mask]).sum().item()/max(1,mask.sum().item())
-                running_random_accuracy += correct_topk_random[mask].sum().item() / max(1, mask.sum().item())
-                random_accuracy = running_random_accuracy/batch_num
+                # running_recomposed_accuracy += (recomposed_predictions[mask] == batch['recomposed_harmony_ids'].to(device)[mask]).sum().item()/max(1,mask.sum().item())
+                running_recomposed_accuracy += correct_topk_recomposed[mask].sum().item() / max(1, mask.sum().item())
+                recomposed_accuracy = running_recomposed_accuracy/batch_num
 
                 tepoch.set_postfix(
                     loss=total_train_loss,
                     acc_real=real_accuracy,
-                    acc_rnd=random_accuracy
+                    acc_rnd=recomposed_accuracy
                 )
                 step += 1
                 if step%(total_steps//(epochs*validations_per_epoch)) == 0 or step == total_steps:
@@ -986,10 +987,10 @@ def train_graph_loop(
                         step,
                         total_train_loss,
                         real_train_loss,
-                        random_train_loss,
+                        recomposed_train_loss,
                         contra_train_loss,
                         real_accuracy,
-                        random_accuracy,
+                        recomposed_accuracy,
                         best_val_loss, saving_version,
                         results_path=results_path,
                         transformer_path=transformer_path,
@@ -1014,10 +1015,10 @@ def validation_bilstm_loop(
         step,
         total_train_loss,
         real_train_loss,
-        random_train_loss,
+        recomposed_train_loss,
         contrastive_train_loss,
         real_accuracy,
-        random_accuracy,
+        recomposed_accuracy,
         best_val_loss, saving_version,
         results_path=None, transformer_path=None, 
         bilstm_model_path=None, tqdm_position=0
@@ -1030,15 +1031,15 @@ def validation_bilstm_loop(
         total_val_loss = 0
         running_real_loss = 0
         real_val_loss = 0
-        running_random_loss = 0
-        random_val_loss = 0
+        running_recomposed_loss = 0
+        recomposed_val_loss = 0
         running_contra_loss = 0
         val_contra_loss = 0
 
         real_val_accuracy = 0
         running_real_accuracy = 0
-        random_val_accuracy = 0
-        running_random_accuracy = 0
+        recomposed_val_accuracy = 0
+        running_recomposed_accuracy = 0
 
         batch_num = 0
         print('validation')
@@ -1049,9 +1050,9 @@ def validation_bilstm_loop(
                 real_constraints = batch['real_harmony_ids'].clone()
                 real_constraints[batch['mask_token_positions']] = mask_token_id
 
-                random_guide_z = bilstm_model(batch['random_bilstm'].to(device), batch['random_lengths'].to(device))
-                random_constraints = batch['random_harmony_ids'].clone()
-                random_constraints[batch['mask_token_positions']] = mask_token_id
+                recomposed_guide_z = bilstm_model(batch['recomposed_bilstm'].to(device), batch['recomposed_lengths'].to(device))
+                recomposed_constraints = batch['recomposed_harmony_ids'].clone()
+                recomposed_constraints[batch['mask_token_positions']] = mask_token_id
 
                 real_logits = transformer_model(
                     batch['pianoroll'].to(device),
@@ -1059,33 +1060,33 @@ def validation_bilstm_loop(
                     real_guide_z.to(device)
                 )
 
-                random_logits = transformer_model(
+                recomposed_logits = transformer_model(
                     batch['pianoroll'].to(device),
-                    random_constraints.to(device),
-                    random_guide_z.to(device)
+                    recomposed_constraints.to(device),
+                    recomposed_guide_z.to(device)
                 )
 
                 mask = batch['mask_token_positions'].to(device)
                 real_target = batch['real_harmony_ids'].clone().to(device)
                 # real_target[~mask] = -100
-                random_target = batch['random_harmony_ids'].clone().to(device)
-                # random_target[~mask] = -100
+                recomposed_target = batch['recomposed_harmony_ids'].clone().to(device)
+                # recomposed_target[~mask] = -100
 
                 real_logits_loss = logits_loss_fn(
                     real_logits.view(-1, real_logits.size(-1)),
                     real_target.view(-1)
                 )
 
-                random_logits_loss = logits_loss_fn(
-                    random_logits.view(-1, random_logits.size(-1)),
-                    random_target.view(-1)
+                recomposed_logits_loss = logits_loss_fn(
+                    recomposed_logits.view(-1, recomposed_logits.size(-1)),
+                    recomposed_target.view(-1)
                 )
 
-                contrastive_val_loss = guidance_contrastive_loss(real_guide_z, random_guide_z)
+                contrastive_val_loss = guidance_contrastive_loss(real_guide_z, recomposed_guide_z)
 
-                loss = real_logits_loss + random_logits_loss + contrastive_weight * contrastive_val_loss
-                # loss = real_logits_loss + random_logits_loss
-                # loss = random_logits_loss
+                loss = real_logits_loss + recomposed_logits_loss + contrastive_weight * contrastive_val_loss
+                # loss = real_logits_loss + recomposed_logits_loss
+                # loss = recomposed_logits_loss
 
                 # update loss and accuracy
                 # loss
@@ -1094,8 +1095,8 @@ def validation_bilstm_loop(
                 total_val_loss = running_total_loss/batch_num
                 running_real_loss += real_logits_loss.item()
                 real_val_loss = running_real_loss/batch_num
-                running_random_loss += random_logits_loss.item()
-                random_val_loss = running_random_loss/batch_num
+                running_recomposed_loss += recomposed_logits_loss.item()
+                recomposed_val_loss = running_recomposed_loss/batch_num
                 running_contra_loss += contrastive_val_loss.item()
                 val_contra_loss = running_contra_loss/batch_num
 
@@ -1107,10 +1108,10 @@ def validation_bilstm_loop(
                 real_target = batch['real_harmony_ids'].to(device).unsqueeze(-1)
                 correct_topk_real = (topk_real == real_target).any(dim=-1)
 
-                # random_predictions = random_logits.argmax(dim=-1)
-                topk_random = torch.topk(random_logits, k, dim=-1).indices
-                random_target = batch['random_harmony_ids'].to(device).unsqueeze(-1)
-                correct_topk_random = (topk_random == random_target).any(dim=-1)
+                # recomposed_predictions = recomposed_logits.argmax(dim=-1)
+                topk_recomposed = torch.topk(recomposed_logits, k, dim=-1).indices
+                recomposed_target = batch['recomposed_harmony_ids'].to(device).unsqueeze(-1)
+                correct_topk_recomposed = (topk_recomposed == recomposed_target).any(dim=-1)
 
                 # mask = torch.logical_and(harmony_target != harmony_input, harmony_target != -100)
                 mask = batch['mask_token_positions'].to(device)
@@ -1118,14 +1119,14 @@ def validation_bilstm_loop(
                 running_real_accuracy += correct_topk_real[mask].sum().item() / max(1, mask.sum().item())
                 real_val_accuracy = running_real_accuracy/batch_num
 
-                # running_random_accuracy += (random_predictions[mask] == batch['random_harmony_ids'].to(device)[mask]).sum().item()/max(1,mask.sum().item())
-                running_random_accuracy += correct_topk_random[mask].sum().item() / max(1, mask.sum().item())
-                random_val_accuracy = running_random_accuracy/batch_num
+                # running_recomposed_accuracy += (recomposed_predictions[mask] == batch['recomposed_harmony_ids'].to(device)[mask]).sum().item()/max(1,mask.sum().item())
+                running_recomposed_accuracy += correct_topk_recomposed[mask].sum().item() / max(1, mask.sum().item())
+                recomposed_val_accuracy = running_recomposed_accuracy/batch_num
 
                 tepoch.set_postfix(
                     loss=total_val_loss,
                     acc_real=real_val_accuracy,
-                    acc_rnd=random_val_accuracy
+                    acc_rnd=recomposed_val_accuracy
                 )
             # end for batch
         # end with tqdm
@@ -1137,16 +1138,16 @@ def validation_bilstm_loop(
             best_val_loss = total_val_loss
             torch.save(transformer_model.state_dict(), transformer_path)
             torch.save(bilstm_model.state_dict(), bilstm_model_path)
-    print(f'validation: loss={total_val_loss}, acc_real={real_val_accuracy}, acc_rnd={random_val_accuracy}')
+    print(f'validation: loss={total_val_loss}, acc_real={real_val_accuracy}, acc_rnd={recomposed_val_accuracy}')
     print('results_path: ', results_path)
     if results_path is not None:
         with open( results_path, 'a' ) as f:
             writer = csv.writer(f)
             writer.writerow( [epoch, step, \
-                        total_train_loss, real_train_loss,  random_train_loss, contrastive_train_loss, \
-                        real_accuracy, random_accuracy, \
-                        total_val_loss, real_val_loss,  random_val_loss, val_contra_loss, \
-                        real_val_accuracy, random_val_accuracy, \
+                        total_train_loss, real_train_loss,  recomposed_train_loss, contrastive_train_loss, \
+                        real_accuracy, recomposed_accuracy, \
+                        total_val_loss, real_val_loss,  recomposed_val_loss, val_contra_loss, \
+                        real_val_accuracy, recomposed_val_accuracy, \
                         saving_version] )
     return best_val_loss, saving_version
 # end validation_bilstm_loop
@@ -1155,6 +1156,7 @@ def train_bilstm_loop(
         transformer_model, bilstm_model,
         logits_loss_fn,
         optimizer, trainloader, valloader, mask_token_id,
+        use_contra=False,
         epochs=100,
         results_path=None,
         transformer_path=None,
@@ -1174,10 +1176,10 @@ def train_bilstm_loop(
     print('results_path:', results_path)
     if results_path is not None:
         result_fields = ['epoch', 'step', \
-                        'total_train_loss', 'real_train_loss',  'random_train_loss', 'contra_train_loss', \
-                        'real_train_acc', 'random_train_acc', \
-                        'total_val_loss', 'real_val_loss',  'random_val_loss', 'contra_val_loss', \
-                        'real_val_acc', 'random_val_acc', \
+                        'total_train_loss', 'real_train_loss',  'recomposed_train_loss', 'contra_train_loss', \
+                        'real_train_acc', 'recomposed_train_acc', \
+                        'total_val_loss', 'real_val_loss',  'recomposed_val_loss', 'contra_val_loss', \
+                        'real_val_acc', 'recomposed_val_acc', \
                         'sav_version']
         with open( results_path, 'w' ) as f:
             writer = csv.writer(f)
@@ -1195,15 +1197,15 @@ def train_bilstm_loop(
         total_train_loss = 0
         running_real_loss = 0
         real_train_loss = 0
-        running_random_loss = 0
-        random_train_loss = 0
+        running_recomposed_loss = 0
+        recomposed_train_loss = 0
         running_contra_loss = 0
         contra_train_loss = 0
 
         real_accuracy = 0
         running_real_accuracy = 0
-        random_accuracy = 0
-        running_random_accuracy = 0
+        recomposed_accuracy = 0
+        running_recomposed_accuracy = 0
 
         batch_num = 0
         
@@ -1220,9 +1222,9 @@ def train_bilstm_loop(
                 real_constraints[batch['mask_token_positions']] = mask_token_id
 
 
-                random_guide_z = bilstm_model(batch['random_bilstm'].to(device), batch['random_lengths'].to(device))
-                random_constraints = batch['random_harmony_ids'].clone()
-                random_constraints[batch['mask_token_positions']] = mask_token_id
+                recomposed_guide_z = bilstm_model(batch['recomposed_bilstm'].to(device), batch['recomposed_lengths'].to(device))
+                recomposed_constraints = batch['recomposed_harmony_ids'].clone()
+                recomposed_constraints[batch['mask_token_positions']] = mask_token_id
 
                 real_logits = transformer_model(
                     batch['pianoroll'].to(device),
@@ -1230,34 +1232,34 @@ def train_bilstm_loop(
                     real_guide_z.to(device)
                 )
 
-                random_logits = transformer_model(
+                recomposed_logits = transformer_model(
                     batch['pianoroll'].to(device),
-                    random_constraints.to(device),
-                    random_guide_z.to(device)
+                    recomposed_constraints.to(device),
+                    recomposed_guide_z.to(device)
                 )
 
                 mask = batch['mask_token_positions'].to(device)
                 real_target = batch['real_harmony_ids'].clone().to(device)
                 # real_target[~mask] = -100
-                random_target = batch['random_harmony_ids'].clone().to(device)
-                # random_target[~mask] = -100
+                recomposed_target = batch['recomposed_harmony_ids'].clone().to(device)
+                # recomposed_target[~mask] = -100
 
                 real_logits_loss = logits_loss_fn(
                     real_logits.view(-1, real_logits.size(-1)),
                     real_target.view(-1)
                 )
                 
-                random_logits_loss = logits_loss_fn(
-                    random_logits.view(-1, random_logits.size(-1)),
-                    random_target.view(-1)
+                recomposed_logits_loss = logits_loss_fn(
+                    recomposed_logits.view(-1, recomposed_logits.size(-1)),
+                    recomposed_target.view(-1)
                 )
 
-                contrastive_loss = guidance_contrastive_loss(real_guide_z, random_guide_z)
+                contrastive_loss = guidance_contrastive_loss(real_guide_z, recomposed_guide_z)
 
                 optimizer.zero_grad()
-                loss = real_logits_loss + random_logits_loss + contrastive_weight * contrastive_loss
-                # loss = real_logits_loss + random_logits_loss
-                # loss = random_logits_loss
+                loss = real_logits_loss + recomposed_logits_loss + use_contra * contrastive_weight * contrastive_loss
+                # loss = real_logits_loss + recomposed_logits_loss
+                # loss = recomposed_logits_loss
                 loss.backward()
                 optimizer.step()
                 # scheduler.step()
@@ -1269,8 +1271,8 @@ def train_bilstm_loop(
                 total_train_loss = running_total_loss/batch_num
                 running_real_loss += real_logits_loss.item()
                 real_train_loss = running_real_loss/batch_num
-                running_random_loss += random_logits_loss.item()
-                random_train_loss = running_random_loss/batch_num
+                running_recomposed_loss += recomposed_logits_loss.item()
+                recomposed_train_loss = running_recomposed_loss/batch_num
                 running_contra_loss += contrastive_loss.item()
                 contra_train_loss = running_contra_loss/batch_num
 
@@ -1282,10 +1284,10 @@ def train_bilstm_loop(
                 real_target = batch['real_harmony_ids'].to(device).unsqueeze(-1)
                 correct_topk_real = (topk_real == real_target).any(dim=-1)
 
-                # random_predictions = random_logits.argmax(dim=-1)
-                topk_random = torch.topk(random_logits, k, dim=-1).indices
-                random_target = batch['random_harmony_ids'].to(device).unsqueeze(-1)
-                correct_topk_random = (topk_random == random_target).any(dim=-1)
+                # recomposed_predictions = recomposed_logits.argmax(dim=-1)
+                topk_recomposed = torch.topk(recomposed_logits, k, dim=-1).indices
+                recomposed_target = batch['recomposed_harmony_ids'].to(device).unsqueeze(-1)
+                correct_topk_recomposed = (topk_recomposed == recomposed_target).any(dim=-1)
 
                 # mask = torch.logical_and(harmony_target != harmony_input, harmony_target != -100)
                 mask = batch['mask_token_positions'].to(device)
@@ -1293,14 +1295,14 @@ def train_bilstm_loop(
                 running_real_accuracy += correct_topk_real[mask].sum().item() / max(1, mask.sum().item())
                 real_accuracy = running_real_accuracy/batch_num
 
-                # running_random_accuracy += (random_predictions[mask] == batch['random_harmony_ids'].to(device)[mask]).sum().item()/max(1,mask.sum().item())
-                running_random_accuracy += correct_topk_random[mask].sum().item() / max(1, mask.sum().item())
-                random_accuracy = running_random_accuracy/batch_num
+                # running_recomposed_accuracy += (recomposed_predictions[mask] == batch['recomposed_harmony_ids'].to(device)[mask]).sum().item()/max(1,mask.sum().item())
+                running_recomposed_accuracy += correct_topk_recomposed[mask].sum().item() / max(1, mask.sum().item())
+                recomposed_accuracy = running_recomposed_accuracy/batch_num
 
                 tepoch.set_postfix(
                     loss=total_train_loss,
                     acc_real=real_accuracy,
-                    acc_rnd=random_accuracy
+                    acc_rnd=recomposed_accuracy
                 )
                 step += 1
                 if step%(total_steps//(epochs*validations_per_epoch)) == 0 or step == total_steps:
@@ -1313,10 +1315,10 @@ def train_bilstm_loop(
                         step,
                         total_train_loss,
                         real_train_loss,
-                        random_train_loss,
+                        recomposed_train_loss,
                         contra_train_loss,
                         real_accuracy,
-                        random_accuracy,
+                        recomposed_accuracy,
                         best_val_loss, saving_version,
                         results_path=results_path,
                         transformer_path=transformer_path,

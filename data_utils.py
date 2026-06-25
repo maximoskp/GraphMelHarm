@@ -137,13 +137,11 @@ class HarmonicGraphDataset(Dataset):
         self,
         data,
         tokenizer,
-        # model,
         max_segment_bars=2,
         include_melody=False
     ):
         self.data = data
         self.tokenizer = tokenizer
-        # self.model = model
         self.max_segment_bars = max_segment_bars
         self.include_melody = include_melody
     # end init
@@ -154,100 +152,28 @@ class HarmonicGraphDataset(Dataset):
 
     def __getitem__(self, idx):
         d = self.data[idx]
-        new_idx = idx
-        # select another random piece
-        while new_idx == idx:
-            new_idx = np.random.randint(len(self.data))
-            d_new = self.data[new_idx]
-        found_segment = False
-        while not found_segment:
-            try:
-                bar_start, bar_end = d['graph_ready_object'].get_valid_bar_segment_range(self.max_segment_bars)
-
-                # ==========================================
-                # Extract canonical segment
-                # ==========================================
-                d['graph_ready_object'].make_graph_of_segment(bar_start, bar_end)
-                real_graph = d['graph_ready_object'].segment_graph
-
-                # get token positions for recomposition and randomization
-                token_positions = d['graph_ready_object'].get_token_positions_of_bar_segment()
-                mask_token_positions = np.zeros(len(d['harmony_ids']), dtype=bool)
-                mask_token_positions[token_positions] = True
-                # mask the tokens in the segment
-                masked_tokens = np.array(d['harmony_ids'])
-                masked_tokens[token_positions] = self.tokenizer.mask_token_id
-                masked_tokens = masked_tokens.tolist()
-                # prepare inputs for recomposition
-                melody_grid = torch.tensor(d['pianoroll'], dtype=torch.float32).unsqueeze(0)
-                harmony_ids = torch.tensor(d['harmony_ids'], dtype=torch.long).unsqueeze(0)
-                masked_tokens_tensor = torch.tensor(masked_tokens, dtype=torch.long).unsqueeze(0)
-
-                # # recomposed view
-                # temperature = 1.0 + np.random.rand() * 3.0
-                # recomposed_harmony_ids = nucleus_token_by_token_generate(
-                #     model=self.model,
-                #     melody_grid=melody_grid.to(self.model.device),
-                #     guidance_vector=None,
-                #     mask_token_id=self.tokenizer.mask_token_id,
-                #     chord_constraints=masked_tokens_tensor.to(self.model.device),
-                #     pad_token_id=self.tokenizer.pad_token_id,
-                #     nc_token_id=self.tokenizer.nc_token_id,
-                #     temperature=temperature,
-                # )
-                # # re-make dataset item for constructing graph
-                # d_recomposed = d.copy()
-                # d_recomposed['harmony_ids'] = recomposed_harmony_ids.squeeze(0).cpu().numpy().tolist()
-                # graph_ready_object = make_graph_ready_for_dataset_item(d_recomposed, self.tokenizer, self.include_melody)
-                # d_recomposed['graph_ready_object'] = graph_ready_object
-                # d_recomposed['graph_ready_object'].make_graph_of_segment(bar_start, bar_end)
-                # recomposed_graph = d_recomposed['graph_ready_object'].segment_graph
-
-                # randomized view
-                random_harmony_ids = masked_tokens_tensor.clone()
-                # mask_positions = masked_tokens_tensor == self.tokenizer.mask_token_id
-                # random_harmony_ids[mask_positions] = torch.randint(
-                #     7, 
-                #     len(self.tokenizer.vocab), 
-                #     (mask_positions.sum().item(),),
-                #     device=masked_tokens_tensor.device
-                # )
-
-                new_harmony_ids = d_new['harmony_ids']
-                mask_token_positions_tensor = torch.tensor(mask_token_positions, dtype=torch.bool).unsqueeze(0)
-                new_harmony_ids_tensor = torch.tensor(new_harmony_ids, dtype=torch.long).unsqueeze(0)
-                random_harmony_ids[mask_token_positions_tensor] = new_harmony_ids_tensor[mask_token_positions_tensor]
-                # # re-make dataset item for constructing graph
-                d_random = d.copy()
-                d_random['harmony_ids'] = random_harmony_ids.squeeze(0).cpu().numpy().tolist()
-                graph_ready_object = make_graph_ready_for_dataset_item(d_random, self.tokenizer, self.include_melody)
-                d_random['graph_ready_object'] = graph_ready_object
-                d_random['graph_ready_object'].make_graph_of_segment(bar_start, bar_end)
-                random_graph = d_random['graph_ready_object'].segment_graph
-                found_segment = True
-            except Exception as e:
-                print('error in HarmonicGraphDataset.__getitem__', e)
-                # print(f'retrying segment for idx {idx}: bar_start: {bar_start} - bar_end: {bar_end}')
-                idx = (idx + 1)%len(self.data)
-                d = self.data[idx]
+        while len(d['segments']) <= 0:
+            idx = np.random.randint(len(self.data))
+            d = self.data[idx]
+        segment_idx = np.random.randint(len(d['segments']))
+        seg = d['segments'][segment_idx]
 
         return {
 
             'piece_idx': idx,
+            'segment_idx':idx,
 
-            'bar_start': bar_start,
-            'bar_end': bar_end,
+            'bar_start': seg['bar_start'],
+            'bar_end': seg['bar_start'],
 
-            'mask_token_positions': mask_token_positions.tolist(),
-            'pianoroll': d['pianoroll'],
+            'mask_token_positions': seg['mask_token_positions'],
+            'pianoroll': seg['pianoroll'],
 
-            'real_harmony_ids': d['harmony_ids'],
-            # 'recomposed_harmony_ids': d_recomposed['harmony_ids'],
-            'random_harmony_ids': d_random['harmony_ids'],
+            'real_harmony_ids': seg['real_segment']['real_harmony_ids'],
+            'recomposed_harmony_ids': seg['recomposed_segment']['recomposed_harmony_ids'],
 
-            'real_graph': real_graph,
-            # 'recomposed_graph': recomposed_graph,
-            'random_graph': random_graph,
+            'real_graph': seg['real_segment']['real_graph'],
+            'recomposed_graph': seg['recomposed_segment']['recomposed_graph']
         }
     # end getitem
 # end class HarmonicGraphDataset
@@ -268,13 +194,8 @@ def harmonic_graph_collate_fn(batch):
         for item in batch
     ])
 
-    # recomposed_harmony_ids = torch.stack([
-    #     torch.tensor(item['recomposed_harmony_ids'], dtype=torch.long)
-    #     for item in batch
-    # ])
-
-    random_harmony_ids = torch.stack([
-        torch.tensor(item['random_harmony_ids'], dtype=torch.long)
+    recomposed_harmony_ids = torch.stack([
+        torch.tensor(item['recomposed_harmony_ids'], dtype=torch.long)
         for item in batch
     ])
 
@@ -283,13 +204,8 @@ def harmonic_graph_collate_fn(batch):
         for item in batch
     ])
 
-    # recomposed_graphs = Batch.from_data_list([
-    #     item['recomposed_graph']
-    #     for item in batch
-    # ])
-
-    random_graphs = Batch.from_data_list([
-        item['random_graph']
+    recomposed_graphs = Batch.from_data_list([
+        item['recomposed_graph']
         for item in batch
     ])
 
@@ -303,12 +219,10 @@ def harmonic_graph_collate_fn(batch):
         'pianoroll': pianorolls,
 
         'real_harmony_ids': real_harmony_ids,
-        # 'recomposed_harmony_ids': recomposed_harmony_ids,
-        'random_harmony_ids': random_harmony_ids,
+        'recomposed_harmony_ids': recomposed_harmony_ids,
 
         'real_graph': real_graphs,
-        # 'recomposed_graph': recomposed_graphs,
-        'random_graph': random_graphs,
+        'recomposed_graph': recomposed_graphs,
 
         'mask_token_positions': mask_token_positions
     }
@@ -325,13 +239,11 @@ class HarmonicBiLSTMDataset(Dataset):
         self,
         data,
         tokenizer,
-        # model,
         max_segment_bars=2,
         include_melody=False
     ):
         self.data = data
         self.tokenizer = tokenizer
-        # self.model = model
         self.max_segment_bars = max_segment_bars
         self.include_melody = include_melody
     # end init
@@ -342,90 +254,28 @@ class HarmonicBiLSTMDataset(Dataset):
 
     def __getitem__(self, idx):
         d = self.data[idx]
-        found_segment = False
-        while not found_segment:
-            try:
-                bar_start, bar_end = d['graph_ready_object'].get_valid_bar_segment_range(self.max_segment_bars)
-
-                # ==========================================
-                # Extract canonical segment
-                # ==========================================
-                d['graph_ready_object'].make_bilstm_seq_of_segment(bar_start, bar_end)
-                real_bilstm = d['graph_ready_object'].segment_bilstm
-
-                # get token positions for recomposition and randomization
-                token_positions = d['graph_ready_object'].get_token_positions_of_bar_segment()
-                mask_token_positions = np.zeros(len(d['harmony_ids']), dtype=bool)
-                mask_token_positions[token_positions] = True
-                # mask the tokens in the segment
-                masked_tokens = np.array(d['harmony_ids'])
-                masked_tokens[token_positions] = self.tokenizer.mask_token_id
-                masked_tokens = masked_tokens.tolist()
-                # prepare inputs for recomposition
-                melody_grid = torch.tensor(d['pianoroll'], dtype=torch.float32).unsqueeze(0)
-                harmony_ids = torch.tensor(d['harmony_ids'], dtype=torch.long).unsqueeze(0)
-                masked_tokens_tensor = torch.tensor(masked_tokens, dtype=torch.long).unsqueeze(0)
-
-                # # recomposed view
-                # temperature = 1.0 + np.random.rand() * 3.0
-                # recomposed_harmony_ids = nucleus_token_by_token_generate(
-                #     model=self.model,
-                #     melody_grid=melody_grid.to(self.model.device),
-                #     guidance_vector=None,
-                #     mask_token_id=self.tokenizer.mask_token_id,
-                #     chord_constraints=masked_tokens_tensor.to(self.model.device),
-                #     pad_token_id=self.tokenizer.pad_token_id,
-                #     nc_token_id=self.tokenizer.nc_token_id,
-                #     temperature=temperature,
-                # )
-                # # re-make dataset item for constructing graph
-                # d_recomposed = d.copy()
-                # d_recomposed['harmony_ids'] = recomposed_harmony_ids.squeeze(0).cpu().numpy().tolist()
-                # graph_ready_object = make_graph_ready_for_dataset_item(d_recomposed, self.tokenizer, self.include_melody)
-                # d_recomposed['graph_ready_object'] = graph_ready_object
-                # d_recomposed['graph_ready_object'].make_bilstm_seq_of_segment(bar_start, bar_end)
-                # recomposed_bilstm = d_recomposed['graph_ready_object'].segment_bilstm
-
-                # randomized view
-                random_harmony_ids = masked_tokens_tensor.clone()
-                mask_positions = masked_tokens_tensor == self.tokenizer.mask_token_id
-                random_harmony_ids[mask_positions] = torch.randint(
-                    7, 
-                    len(self.tokenizer.vocab), 
-                    (mask_positions.sum().item(),),
-                    device=masked_tokens_tensor.device
-                )
-                # re-make dataset item for constructing graph
-                d_random = d.copy()
-                d_random['harmony_ids'] = random_harmony_ids.squeeze(0).cpu().numpy().tolist()
-                graph_ready_object = make_graph_ready_for_dataset_item(d_random, self.tokenizer, self.include_melody)
-                d_random['graph_ready_object'] = graph_ready_object
-                d_random['graph_ready_object'].make_bilstm_seq_of_segment(bar_start, bar_end)
-                random_bilstm = d_random['graph_ready_object'].segment_bilstm
-                found_segment = True
-            except Exception as e:
-                print(e)
-                # print(f'retrying segment for idx {idx}: bar_start: {bar_start} - bar_end: {bar_end}')
-                idx = (idx + 1)%len(self.data)
-                d = self.data[idx]
+        while len(d['segments']) <= 0:
+            idx = np.random.randint(len(self.data))
+            d = self.data[idx]
+        segment_idx = np.random.randint(len(d['segments']))
+        seg = d['segments'][segment_idx]
 
         return {
 
             'piece_idx': idx,
+            'segment_idx':idx,
 
-            'bar_start': bar_start,
-            'bar_end': bar_end,
+            'bar_start': seg['bar_start'],
+            'bar_end': seg['bar_start'],
 
-            'mask_token_positions': mask_token_positions.tolist(),
-            'pianoroll': d['pianoroll'],
+            'mask_token_positions': seg['mask_token_positions'],
+            'pianoroll': seg['pianoroll'],
 
-            'real_harmony_ids': d['harmony_ids'],
-            # 'recomposed_harmony_ids': d_recomposed['harmony_ids'],
-            'random_harmony_ids': d_random['harmony_ids'],
+            'real_harmony_ids': seg['real_segment']['real_harmony_ids'],
+            'recomposed_harmony_ids': seg['recomposed_segment']['recomposed_harmony_ids'],
 
-            'real_bilstm': real_bilstm,
-            # 'recomposed_bilstm': recomposed_bilstm,
-            'random_bilstm': random_bilstm
+            'real_bilstm': seg['real_segment']['real_bilstm'],
+            'recomposed_bilstm': seg['recomposed_segment']['recomposed_bilstm']
         }
     # end getitem
 # end class HarmonicBiLSTMDataset
@@ -446,13 +296,8 @@ def harmonic_bilstm_collate_fn(batch):
         for item in batch
     ])
 
-    # recomposed_harmony_ids = torch.stack([
-    #     torch.tensor(item['recomposed_harmony_ids'], dtype=torch.long)
-    #     for item in batch
-    # ])
-
-    random_harmony_ids = torch.stack([
-        torch.tensor(item['random_harmony_ids'], dtype=torch.long)
+    recomposed_harmony_ids = torch.stack([
+        torch.tensor(item['recomposed_harmony_ids'], dtype=torch.long)
         for item in batch
     ])
 
@@ -473,36 +318,19 @@ def harmonic_bilstm_collate_fn(batch):
         padding_value=0.0
     )
 
-    # recomposed_bilstm_list = [
-    #     torch.as_tensor(
-    #         item['recomposed_bilstm'],
-    #         dtype=torch.float32
-    #     )
-    #     for item in batch
-    # ]
-    # recomposed_lengths = torch.tensor(
-    #     [x.shape[0] for x in recomposed_bilstm_list],
-    #     dtype=torch.long
-    # )
-    # recomposed_bilstm = pad_sequence(
-    #     recomposed_bilstm_list,
-    #     batch_first=True,
-    #     padding_value=0.0
-    # )
-
-    random_bilstm_list = [
+    recomposed_bilstm_list = [
         torch.as_tensor(
-            item['random_bilstm'],
+            item['recomposed_bilstm'],
             dtype=torch.float32
         )
         for item in batch
     ]
-    random_lengths = torch.tensor(
-        [x.shape[0] for x in random_bilstm_list],
+    recomposed_lengths = torch.tensor(
+        [x.shape[0] for x in recomposed_bilstm_list],
         dtype=torch.long
     )
-    random_bilstm = pad_sequence(
-        random_bilstm_list,
+    recomposed_bilstm = pad_sequence(
+        recomposed_bilstm_list,
         batch_first=True,
         padding_value=0.0
     )
@@ -515,19 +343,15 @@ def harmonic_bilstm_collate_fn(batch):
     return {
 
         'pianoroll': pianorolls,
-
+        
         'real_harmony_ids': real_harmony_ids,
-        # 'recomposed_harmony_ids': recomposed_harmony_ids,
-        'random_harmony_ids': random_harmony_ids,
+        'recomposed_harmony_ids': recomposed_harmony_ids,
 
         'real_bilstm': real_bilstm,
         'real_lengths': real_lengths,
 
-        # 'recomposed_bilstm': recomposed_bilstm,
-        # 'recomposed_lengths': recomposed_lengths,
-
-        'random_bilstm': random_bilstm,
-        'random_lengths': random_lengths,
+        'recomposed_bilstm': recomposed_bilstm,
+        'recomposed_lengths': recomposed_lengths,
 
         'mask_token_positions': mask_token_positions
     }
@@ -543,13 +367,11 @@ class TokenBiLSTMDataset(Dataset):
         self,
         data,
         tokenizer,
-        # model,
         max_segment_bars=2,
         include_melody=False
     ):
         self.data = data
         self.tokenizer = tokenizer
-        # self.model = model
         self.max_segment_bars = max_segment_bars
         self.include_melody = include_melody
     # end init
@@ -560,79 +382,27 @@ class TokenBiLSTMDataset(Dataset):
 
     def __getitem__(self, idx):
         d = self.data[idx]
-        found_segment = False
-        while not found_segment:
-            try:
-                bar_start, bar_end = d['graph_ready_object'].get_valid_bar_segment_range(self.max_segment_bars)
-
-                # ==========================================
-                # Extract canonical segment
-                # ==========================================
-                d['graph_ready_object'].make_bilstm_seq_of_segment(bar_start, bar_end)
-                # real_bilstm = d['graph_ready_object'].segment_bilstm
-
-                # get token positions for recomposition and randomization
-                token_positions = d['graph_ready_object'].get_token_positions_of_bar_segment()
-                mask_token_positions = np.zeros(len(d['harmony_ids']), dtype=bool)
-                mask_token_positions[token_positions] = True
-                mask_token_positions_tensor = torch.from_numpy(mask_token_positions)
-                # mask the tokens in the segment
-                masked_tokens = np.array(d['harmony_ids'])
-                masked_tokens[token_positions] = self.tokenizer.mask_token_id
-                masked_tokens = masked_tokens.tolist()
-                # prepare inputs for recomposition
-                melody_grid = torch.tensor(d['pianoroll'], dtype=torch.float32).unsqueeze(0)
-                real_ids_segment = torch.tensor(np.asarray(d['harmony_ids'])[mask_token_positions], dtype=torch.long)
-                masked_tokens_tensor = torch.tensor(masked_tokens, dtype=torch.long).unsqueeze(0)
-
-                # # recomposed view
-                # temperature = 1.0 + np.random.rand() * 3.0
-                # recomposed_harmony_ids = nucleus_token_by_token_generate(
-                #     model=self.model,
-                #     melody_grid=melody_grid.to(self.model.device),
-                #     guidance_vector=None,
-                #     mask_token_id=self.tokenizer.mask_token_id,
-                #     chord_constraints=masked_tokens_tensor.to(self.model.device),
-                #     pad_token_id=self.tokenizer.pad_token_id,
-                #     nc_token_id=self.tokenizer.nc_token_id,
-                #     temperature=temperature,
-                # )
-                # recomposed_ids_segment = recomposed_harmony_ids[0, mask_token_positions_tensor]
-
-                # randomized view
-                random_harmony_ids = masked_tokens_tensor.clone()
-                mask_positions = masked_tokens_tensor == self.tokenizer.mask_token_id
-                random_harmony_ids[mask_positions] = torch.randint(
-                    7, 
-                    len(self.tokenizer.vocab), 
-                    (mask_positions.sum().item(),),
-                    device=masked_tokens_tensor.device
-                )
-                random_ids_segment = random_harmony_ids[0, mask_token_positions_tensor]
-                found_segment = True
-            except Exception as e:
-                print(e)
-                # print(f'retrying segment for idx {idx}: bar_start: {bar_start} - bar_end: {bar_end}')
-                idx = (idx + 1)%len(self.data)
-                d = self.data[idx]
-
+        while len(d['segments']) <= 0:
+            idx = np.random.randint(len(self.data))
+            d = self.data[idx]
+        segment_idx = np.random.randint(len(d['segments']))
+        seg = d['segments'][segment_idx]
         return {
 
             'piece_idx': idx,
+            'segment_idx':idx,
 
-            'bar_start': bar_start,
-            'bar_end': bar_end,
+            'bar_start': seg['bar_start'],
+            'bar_end': seg['bar_start'],
 
-            'mask_token_positions': mask_token_positions.tolist(),
-            'pianoroll': d['pianoroll'],
+            'mask_token_positions': seg['mask_token_positions'],
+            'pianoroll': seg['pianoroll'],
 
-            'real_harmony_ids': d['harmony_ids'],
-            # 'recomposed_harmony_ids': recomposed_harmony_ids,
-            'random_harmony_ids': random_harmony_ids,
+            'real_harmony_ids': seg['real_segment']['real_harmony_ids'],
+            'recomposed_harmony_ids': seg['recomposed_segment']['recomposed_harmony_ids'],
 
-            'real_ids_segment': real_ids_segment,
-            # 'recomposed_ids_segment': recomposed_ids_segment,
-            'random_ids_segment': random_ids_segment,
+            'real_ids_segment': seg['real_segment']['real_ids_segment'],
+            'recomposed_ids_segment': seg['recomposed_segment']['recomposed_ids_segment'],
         }
     # end getitem
 # end class TokenBiLSTMDataset
@@ -653,13 +423,8 @@ def token_bilstm_collate_fn(batch):
         for item in batch
     ])
 
-    # recomposed_harmony_ids = torch.stack([
-    #     torch.tensor(item['recomposed_harmony_ids'], dtype=torch.long)
-    #     for item in batch
-    # ])
-
-    random_harmony_ids = torch.stack([
-        torch.tensor(item['random_harmony_ids'], dtype=torch.long)
+    recomposed_harmony_ids = torch.stack([
+        torch.tensor(item['recomposed_harmony_ids'], dtype=torch.long)
         for item in batch
     ])
 
@@ -680,36 +445,19 @@ def token_bilstm_collate_fn(batch):
         padding_value=0
     )
 
-    # recomposed_bilstm_list = [
-    #     torch.as_tensor(
-    #         item['recomposed_ids_segment'],
-    #         dtype=torch.long
-    #     )
-    #     for item in batch
-    # ]
-    # recomposed_lengths = torch.tensor(
-    #     [x.shape[0] for x in recomposed_bilstm_list],
-    #     dtype=torch.long
-    # )
-    # recomposed_bilstm = pad_sequence(
-    #     recomposed_bilstm_list,
-    #     batch_first=True,
-    #     padding_value=0
-    # )
-
-    random_bilstm_list = [
+    recomposed_bilstm_list = [
         torch.as_tensor(
-            item['random_ids_segment'],
+            item['recomposed_ids_segment'],
             dtype=torch.long
         )
         for item in batch
     ]
-    random_lengths = torch.tensor(
-        [x.shape[0] for x in random_bilstm_list],
+    recomposed_lengths = torch.tensor(
+        [x.shape[0] for x in recomposed_bilstm_list],
         dtype=torch.long
     )
-    random_bilstm = pad_sequence(
-        random_bilstm_list,
+    recomposed_bilstm = pad_sequence(
+        recomposed_bilstm_list,
         batch_first=True,
         padding_value=0
     )
@@ -724,17 +472,13 @@ def token_bilstm_collate_fn(batch):
         'pianoroll': pianorolls,
 
         'real_harmony_ids': real_harmony_ids.squeeze(1),
-        # 'recomposed_harmony_ids': recomposed_harmony_ids,
-        'random_harmony_ids': random_harmony_ids.squeeze(1),
+        'recomposed_harmony_ids': recomposed_harmony_ids.squeeze(1),
 
         'real_bilstm': real_bilstm,
         'real_lengths': real_lengths,
 
-        # 'recomposed_bilstm': recomposed_bilstm,
-        # 'recomposed_lengths': recomposed_lengths,
-
-        'random_bilstm': random_bilstm,
-        'random_lengths': random_lengths,
+        'recomposed_bilstm': recomposed_bilstm,
+        'recomposed_lengths': recomposed_lengths,
 
         'mask_token_positions': mask_token_positions
     }
