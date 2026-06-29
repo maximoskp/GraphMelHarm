@@ -332,13 +332,18 @@ def nucleus_token_by_token_generate(
         temperature=1.0,        # optional softmax temperature
         pad_token_id=None,      # token ID for <pad>
         nc_token_id=None,       # token ID for <nc>
+        bar_token_id=None,       # token ID for <bar>
         force_fill=True,        # disallow <pad>/<nc> before melody ends
         chord_constraints=None, # chord + bar constraints
         p=0.9,                  # nucleus threshold
-        unmasking_order='certain', # in ['random', 'start', 'end', 'certain', 'uncertain']
+        unmasking_order='certain', # in ['random', 'start', 'end', 'certain', 'uncertain'],
+        return_positions=False,
+        num_guidance_steps=None,
     ):
     device = melody_grid.device
     seq_len = melody_grid.shape[1]
+
+    decoded_positions_ordered = []
 
     # --- 1. Initialize ---
     visible_harmony = torch.full((1, seq_len), mask_token_id, dtype=torch.long, device=device)
@@ -393,6 +398,8 @@ def nucleus_token_by_token_generate(
                 if i <= last_active_index:
                     logits[0, i, pad_token_id] = float('-inf')
                     logits[0, i, nc_token_id] = float('-inf')
+                    if bar_token_id is not None:
+                        logits[0, i, bar_token_id] = float('-inf')
                 else:
                     logits[0, i, :] = float('-inf')
                     logits[0, i, pad_token_id] = 1.0
@@ -421,8 +428,14 @@ def nucleus_token_by_token_generate(
 
         # update harmony
         visible_harmony[0, pos] = token
+        decoded_positions_ordered.append(pos)
+        if num_guidance_steps is not None and guidance_embedding is not None:
+            if num_guidance_steps < len(decoded_positions_ordered):
+                guidance_embedding = None
+                print(f'stopping guidance - decoded: {decoded_positions_ordered}')
         step += 1
-    
+    if return_positions:
+        return visible_harmony, decoded_positions_ordered
     return visible_harmony
 # end nucleus_token_by_token_generate
 
@@ -433,7 +446,8 @@ def generate_files_with_nucleus(
         mxl_folder_out,
         midi_folder_out,
         name_suffix,
-        guidance_vec = None,
+        guidance_vec=None,
+        num_guidance_steps=None,
         use_constraints=False,
         intertwine_bar_info=True,
         normalize_tonality=True,
@@ -443,13 +457,10 @@ def generate_files_with_nucleus(
         create_gen=True,
         create_real=False
     ):
-    # we cannot have intertwine_bar_info == True and use_constraints == False
-    # because bar information is passed through the constraints
-    # if intertwine_bar_info:
-    #     use_constraints = True
 
     pad_token_id = tokenizer.pad_token_id
     nc_token_id = tokenizer.nc_token_id
+    bar_token_id = tokenizer.bar_token_id if intertwine_bar_info else None
 
     input_encoded = tokenizer.encode(
         input_f_path,
@@ -468,7 +479,7 @@ def generate_files_with_nucleus(
     
     hidden = None
     if create_gen:
-        nucleus_generated_harmony = nucleus_token_by_token_generate(
+        nucleus_generated_harmony, pos_order = nucleus_token_by_token_generate(
             model=model,
             melody_grid=melody_grid.to(model.device),
             guidance_vector=guidance_vec,
@@ -476,10 +487,13 @@ def generate_files_with_nucleus(
             temperature=temperature,
             pad_token_id=pad_token_id,      # token ID for <pad>
             nc_token_id=nc_token_id,       # token ID for <nc>
+            bar_token_id=bar_token_id,       # token ID for <bar>
             force_fill=True,         # disallow <pad>/<nc> before melody ends
             chord_constraints = harmony_input.to(model.device) if use_constraints or intertwine_bar_info else None,
             p=p,
-            unmasking_order=unmasking_order
+            unmasking_order=unmasking_order,
+            return_positions=True,
+            num_guidance_steps=num_guidance_steps,
         )
         gen_output_tokens = []
         for t in nucleus_generated_harmony[0].tolist():
@@ -539,7 +553,8 @@ def generate_files_with_nucleus(
         'gen_score': gen_score,
         'real_score': real_score,
         'guide_score': guide_score,
-        'hidden': hidden
+        'hidden': hidden,
+        'decoded_positions_order': pos_order
     }
 # end generate_files_with_nucleus
 

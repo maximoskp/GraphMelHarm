@@ -1,0 +1,1 @@
+epoch,step,total_train_loss,real_train_loss,rec_train_loss,contra_train_loss,real_train_acc,rec_train_acc,real_train_top5,rec_train_top5,total_val_loss,real_val_loss,rec_val_loss,contra_val_loss,real_val_acc,rec_val_acc,real_val_top5,rec_val_top5,sav_version
