@@ -620,7 +620,7 @@ def graph_from_string(in_seq, include_melody=False):
             else:
                 chord_symbol = cs
             if chord_symbol in tokenizer.vocab.keys():
-                print(f'{chord_symbol} in vocab as: {tokenizer.vocab[chord_symbol]}')
+                # print(f'{chord_symbol} in vocab as: {tokenizer.vocab[chord_symbol]}')
                 for _ in range(position_info):
                     bar_chord_ids.append(tokenizer.vocab[chord_symbol])
                     bar_position_info.append(position_info)

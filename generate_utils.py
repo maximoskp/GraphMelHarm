@@ -432,7 +432,7 @@ def nucleus_token_by_token_generate(
         if num_guidance_steps is not None and guidance_embedding is not None:
             if num_guidance_steps < len(decoded_positions_ordered):
                 guidance_embedding = None
-                print(f'stopping guidance - decoded: {decoded_positions_ordered}')
+                # print(f'stopping guidance - decoded: {decoded_positions_ordered}')
         step += 1
     if return_positions:
         return visible_harmony, decoded_positions_ordered

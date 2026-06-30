@@ -2,6 +2,7 @@
 
 data/
 saved_models/
+MIDIs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
