@@ -506,7 +506,7 @@ class MelodicHarmonization:
     # end get_event_edge_attributes
 
     def make_bilstm_seq_of_segment(self, bar_start, bar_end):
-        # make a graph of the segment from bar_start to bar_end (exclusive)
+        # make a binary pc representation of the segment from bar_start to bar_end (exclusive)
         # using the bar_objects
         if bar_start < 0 or bar_end > self.num_bars or bar_start >= bar_end:
             raise ValueError("Invalid bar range")
@@ -520,6 +520,22 @@ class MelodicHarmonization:
                 tmp_bilstm_segment.append(chord.bilstm_features)
         self.segment_bilstm = torch.stack(tmp_bilstm_segment)
     # end make_bilstm_seq_of_segment
+
+    def make_token_seq_of_segment(self, bar_start, bar_end):
+        # make a harmony token representation of the segment from bar_start to bar_end (exclusive)
+        # using the bar_objects
+        if bar_start < 0 or bar_end > self.num_bars or bar_start >= bar_end:
+            raise ValueError("Invalid bar range")
+        self.segment_bar_objects = self.bar_objects[bar_start:bar_end]
+        self.segment_bar_start = bar_start
+        self.segment_bar_end = bar_end
+
+        chord_token_ids = []
+        for b in self.segment_bar_objects:
+            for c in b.chord_objects:
+                chord_token_ids.append( c.chord_id )
+        self.segment_tokens = torch.tensor(chord_token_ids, dtype=torch.long)
+    # end make_token_seq_of_segment
 # end class MelodicHarmonization
 
 # class StringMelodicHarmonization:

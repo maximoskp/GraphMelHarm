@@ -25,6 +25,7 @@ patterns = [
     'b_A#:7_@4b_A:min6_@4',
     'b_C#:7_@2;C:maj7_@2',
     'b_G#:7_@2;G:7_@2'
+    'b_F:min6_@2;C:maj7@2'
 ]
 
 def absoluteFilePaths(directory):
@@ -41,7 +42,7 @@ tmp_file_names, tmp_file_paths = absoluteFilePaths('/media/maindisk/data/mel_har
 file_names += tmp_file_names
 file_paths += tmp_file_paths
 
-device_name = 'cuda:0'
+device_name = 'cuda:2'
 device = torch.device(device_name)
 
 graph_model_path = f'saved_models/LoRA/graph/graph_model_contra_jnhw.pt'
@@ -52,7 +53,7 @@ transformer_graph = load_LoRASEModel(
     device,
     checkpoint_path=transformer_graph_path
 )
-transformer_graph.eval()
+graph_model.eval()
 transformer_graph.eval()
 
 for file_name, file_path in tqdm(zip(file_names, file_paths)):
@@ -88,7 +89,7 @@ for file_name, file_path in tqdm(zip(file_names, file_paths)):
                 device,
                 checkpoint_path=transformer_graph_path
             )
-            transformer_graph.eval()
+            graph_model.eval()
             transformer_graph.eval()
 
             # load and prepare BILSTM models
