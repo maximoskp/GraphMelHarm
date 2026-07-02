@@ -339,6 +339,7 @@ def nucleus_token_by_token_generate(
         unmasking_order='certain', # in ['random', 'start', 'end', 'certain', 'uncertain'],
         return_positions=False,
         num_guidance_steps=None,
+        guidance_position_weight=0.2
     ):
     device = melody_grid.device
     seq_len = melody_grid.shape[1]
@@ -371,6 +372,13 @@ def nucleus_token_by_token_generate(
                 harmony_tokens=visible_harmony.to(model.device),
                 z_g=guidance_embedding,
             )  # (1, seq_len, vocab_size)
+            # examine what happens without guidance
+            if guidance_embedding is not None:
+                logits_no_guidance = model(
+                    melody_grid=melody_grid.to(model.device),
+                    harmony_tokens=visible_harmony.to(model.device),
+                    z_g=None,
+                )
         # --- Masked position selection ---
         masked_positions = (visible_harmony == mask_token_id).squeeze(0).nonzero(as_tuple=True)[0]
         if masked_positions.numel() == 0:
@@ -378,13 +386,60 @@ def nucleus_token_by_token_generate(
         masked_positions = masked_positions.to(model.device)
         probs = torch.softmax(logits[0, masked_positions] / temperature, dim=-1)
         entropies = -(probs * probs.clamp_min(1e-9).log()).sum(dim=-1)
+        # check probs without guidance
+        # and influence position selection based on difference
+        if guidance_embedding is not None:
+            probs_no_guidance = torch.softmax(
+                logits_no_guidance[0, masked_positions] / temperature,
+                dim=-1,
+            )
+            # compute KL of probs with vs without guidance
+            kl = (
+                probs *
+                (
+                    probs.clamp_min(1e-9).log()
+                    - probs_no_guidance.clamp_min(1e-9).log()
+                )
+            ).sum(dim=-1)
+            # normalize entropy and kl to be comparable
+            entropy_score = (
+                entropies.max() - entropies
+            )
+            entropy_score /= (
+                entropy_score.max() + 1e-9
+            )
+            kl_score = kl / (kl.max() + 1e-9)
+            # give bonus to those that changed the chord
+            top_guided = probs.argmax(dim=-1)
+            top_plain = probs_no_guidance.argmax(dim=-1)
+            changed = (
+                top_guided != top_plain
+            ).float()
+            guidance_score = (
+                kl_score
+                +
+                changed
+            )
+            # normalize again
+            guidance_score /= (guidance_score.max() + 1e-9)
+            # combine score based on normalized
+            combined_score = (
+                (1.0 - guidance_position_weight)
+                * entropy_score
+                +
+                guidance_position_weight
+                * kl_score
+            )
+        else:
+            combined_score = entropies.clone()
+        # end if - guidance vs unguidance component
 
         if unmasking_order == 'random':
             pos = masked_positions[torch.randint(0, masked_positions.numel(), (1,))].item()
         elif unmasking_order == 'uncertain':
-            pos = masked_positions[torch.argmax(entropies)].item()
+            pos = masked_positions[torch.argmax(combined_score)].item()
         elif unmasking_order == 'certain':
-            pos = masked_positions[torch.argmin(entropies)].item()
+            pos = masked_positions[torch.argmin(combined_score)].item()
         elif unmasking_order == 'start':
             pos = masked_positions[0].item()
         elif unmasking_order == 'end':
@@ -455,7 +510,8 @@ def generate_files_with_nucleus(
         p=0.9,
         unmasking_order='certain',
         create_gen=True,
-        create_real=False
+        create_real=False,
+        guidance_position_weight=0.2
     ):
 
     pad_token_id = tokenizer.pad_token_id
@@ -494,6 +550,7 @@ def generate_files_with_nucleus(
             unmasking_order=unmasking_order,
             return_positions=True,
             num_guidance_steps=num_guidance_steps,
+            guidance_position_weight=guidance_position_weight
         )
         gen_output_tokens = []
         for t in nucleus_generated_harmony[0].tolist():
