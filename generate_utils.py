@@ -9,7 +9,7 @@ from models_FiLM import FiLMSEModel
 from models_LoRA import LoRASEModel
 from models_FiLMLoRA import FiLMLoRASEModel
 from models_HyperNetwork import HyperNetworkSEModel
-from models_graph import HarmonicGraphEncoder
+from models_graph import HarmonicGraphEncoder, GuidanceAdapter
 from models_BiLSTM import HarmonyBiLSTM, TokenHarmonyBiLSTM
 import os
 from music_utils import transpose_score
@@ -324,6 +324,14 @@ def load_TokenBiLSTMModel(checkpoint_path, tokenizer, device, include_melody=Fal
     return bilstm_model
 # end
 
+def load_AdapterModel(checkpoint_path, device):
+    adapter_model = GuidanceAdapter()
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    adapter_model.load_state_dict(checkpoint)
+    adapter_model.to(device)
+    return adapter_model
+# end
+
 def nucleus_token_by_token_generate(
         model,
         melody_grid,            # (1, seq_len, input_dim)
@@ -363,9 +371,17 @@ def nucleus_token_by_token_generate(
         last_active_index = -1
 
     step = 0
-    guidance_embedding=guidance_vector.to(model.device) if guidance_vector is not None else None
+    # guidance_embedding=guidance_vector.to(model.device) if guidance_vector is not None else None
     
     while (visible_harmony == mask_token_id).any():
+        if num_guidance_steps is not None and guidance_vector is not None:
+            if (visible_harmony == mask_token_id).sum() <= num_guidance_steps:
+                guidance_embedding=guidance_vector.to(model.device) if guidance_vector is not None else None
+            else:
+                guidance_embedding = None
+                # print(f'stopping guidance - decoded: {decoded_positions_ordered}')
+        else:
+            guidance_embedding = None
         with torch.no_grad():
             logits = model(
                 melody_grid=melody_grid.to(model.device),
@@ -423,12 +439,19 @@ def nucleus_token_by_token_generate(
             # normalize again
             guidance_score /= (guidance_score.max() + 1e-9)
             # combine score based on normalized
+            # combined_score = (
+            #     (1.0 - guidance_position_weight)
+            #     * entropy_score
+            #     +
+            #     guidance_position_weight
+            #     * kl_score
+            # )
             combined_score = (
-                (1.0 - guidance_position_weight)
-                * entropy_score
-                +
+                entropy_score * (
+                1 +
                 guidance_position_weight
                 * kl_score
+                )
             )
         else:
             combined_score = entropies.clone()
@@ -484,10 +507,10 @@ def nucleus_token_by_token_generate(
         # update harmony
         visible_harmony[0, pos] = token
         decoded_positions_ordered.append(pos)
-        if num_guidance_steps is not None and guidance_embedding is not None:
-            if num_guidance_steps < len(decoded_positions_ordered):
-                guidance_embedding = None
-                # print(f'stopping guidance - decoded: {decoded_positions_ordered}')
+        # if num_guidance_steps is not None and guidance_embedding is not None:
+        #     if num_guidance_steps < len(decoded_positions_ordered):
+        #         guidance_embedding = None
+        #         # print(f'stopping guidance - decoded: {decoded_positions_ordered}')
         step += 1
     if return_positions:
         return visible_harmony, decoded_positions_ordered

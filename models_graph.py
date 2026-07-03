@@ -294,3 +294,39 @@ class HarmonicGraphEncoder(nn.Module):
         return z
     # end forward
 # end class HarmonicGraphEncoder
+
+# ===============================================================
+# ===============================================================
+# ========= GUIDANCE ADAPTER ====================================
+# ===============================================================
+# ===============================================================
+
+
+class GuidanceAdapter(nn.Module):
+    """
+    Minimal adapter that combines graph and BiLSTM guidance.
+
+    Inputs
+    ------
+    graph_guidance : (B, 512)
+    bilstm_guidance: (B, 512)
+
+    Output
+    ------
+    guidance : (B, 512)
+    """
+
+    def __init__(self, dim=512):
+        super().__init__()
+
+        # Compress 1024 -> 512
+        self.proj = nn.Linear(2 * dim, dim)
+    # end init
+
+    def forward(self, graph_guidance, bilstm_guidance):
+
+        fused = torch.cat([graph_guidance, bilstm_guidance], dim=-1)
+
+        return self.proj(fused)
+    # end forward
+# end GuidanceAdapter

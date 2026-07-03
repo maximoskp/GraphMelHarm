@@ -483,3 +483,147 @@ def token_bilstm_collate_fn(batch):
         'mask_token_positions': mask_token_positions
     }
 # end token_bilstm_collate_fn
+
+
+# ============================================================
+# Adapter DATASET
+# ============================================================
+
+class AdapterDataset(Dataset):
+
+    def __init__(
+        self,
+        data,
+        tokenizer,
+        max_segment_bars=2,
+        include_melody=False
+    ):
+        self.data = data
+        self.tokenizer = tokenizer
+        self.max_segment_bars = max_segment_bars
+        self.include_melody = include_melody
+    # end init
+
+    def __len__(self):
+        return len(self.data)
+    # end len
+
+    def __getitem__(self, idx):
+        d = self.data[idx]
+        while len(d['segments']) <= 0:
+            idx = np.random.randint(len(self.data))
+            d = self.data[idx]
+        segment_idx = np.random.randint(len(d['segments']))
+        seg = d['segments'][segment_idx]
+        return {
+
+            'piece_idx': idx,
+            'segment_idx':idx,
+
+            'bar_start': seg['bar_start'],
+            'bar_end': seg['bar_start'],
+
+            'mask_token_positions': seg['mask_token_positions'],
+            'pianoroll': seg['pianoroll'],
+
+            'real_harmony_ids': seg['real_segment']['real_harmony_ids'],
+            'recomposed_harmony_ids': seg['recomposed_segment']['recomposed_harmony_ids'],
+
+            'real_graph': seg['real_segment']['real_graph'],
+            'recomposed_graph': seg['recomposed_segment']['recomposed_graph'],
+
+            'real_ids_segment': seg['real_segment']['real_ids_segment'],
+            'recomposed_ids_segment': seg['recomposed_segment']['recomposed_ids_segment'],
+        }
+    # end getitem
+# end class AdapterDataset
+
+# ============================================================
+# Adapter COLLATE FN
+# ============================================================
+
+def adapter_collate_fn(batch):
+
+    pianorolls = torch.stack([
+        torch.tensor(item['pianoroll'], dtype=torch.float)
+        for item in batch
+    ])
+
+    real_harmony_ids = torch.stack([
+        torch.tensor(item['real_harmony_ids'], dtype=torch.long)
+        for item in batch
+    ])
+
+    recomposed_harmony_ids = torch.stack([
+        torch.tensor(item['recomposed_harmony_ids'], dtype=torch.long)
+        for item in batch
+    ])
+
+    real_graphs = Batch.from_data_list([
+        item['real_graph']
+        for item in batch
+    ])
+
+    recomposed_graphs = Batch.from_data_list([
+        item['recomposed_graph']
+        for item in batch
+    ])
+
+    real_bilstm_list = [
+        torch.as_tensor(
+            item['real_ids_segment'],
+            dtype=torch.long
+        )
+        for item in batch
+    ]
+    real_lengths = torch.tensor(
+        [x.shape[0] for x in real_bilstm_list],
+        dtype=torch.long
+    )
+    real_bilstm = pad_sequence(
+        real_bilstm_list,
+        batch_first=True,
+        padding_value=0
+    )
+
+    recomposed_bilstm_list = [
+        torch.as_tensor(
+            item['recomposed_ids_segment'],
+            dtype=torch.long
+        )
+        for item in batch
+    ]
+    recomposed_lengths = torch.tensor(
+        [x.shape[0] for x in recomposed_bilstm_list],
+        dtype=torch.long
+    )
+    recomposed_bilstm = pad_sequence(
+        recomposed_bilstm_list,
+        batch_first=True,
+        padding_value=0
+    )
+
+    mask_token_positions = torch.stack([
+        torch.tensor(item['mask_token_positions'], dtype=torch.bool)
+        for item in batch
+    ])
+
+    return {
+
+        'pianoroll': pianorolls,
+
+        'real_harmony_ids': real_harmony_ids.squeeze(1),
+        'recomposed_harmony_ids': recomposed_harmony_ids.squeeze(1),
+
+        'real_graph': real_graphs,
+        'recomposed_graph': recomposed_graphs,
+
+        'real_bilstm': real_bilstm,
+        'real_lengths': real_lengths,
+
+        'recomposed_bilstm': recomposed_bilstm,
+        'recomposed_lengths': recomposed_lengths,
+
+        'mask_token_positions': mask_token_positions
+    }
+# end adapter_collate_fn
