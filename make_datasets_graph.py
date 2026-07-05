@@ -37,7 +37,8 @@ chord_features = GridMLM_tokenizers.CHORD_FEATURES
 chord_id_features = {tokenizer.vocab[k]: v for k, v in chord_features.items()}
 
 # datasets = 'jhnw'
-datasets = 'w'
+datasets = 'n'
+# datasets = 'w'
 
 if 'j' in datasets:
     # gjt
