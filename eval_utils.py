@@ -1,7 +1,7 @@
 import torch
 from generate_utils import load_GraphModel, load_BiLSTMModel, load_TokenBiLSTMModel
 from GridMLM_tokenizers import CSGridMLMTokenizer
-from graph_utils import get_graph_embeddings_from_string_with_model, get_bilstm_embeddings_from_string_with_model, get_token_bilstm_embeddings_from_string_with_model, make_graph_ready_for_token_ids
+from graph_utils import get_graph_embeddings_from_string_with_model, get_bilstm_embeddings_from_string_with_model, get_token_bilstm_embeddings_from_string_with_model, get_adapter_embeddings_from_string_with_model, make_graph_ready_for_token_ids
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -13,7 +13,8 @@ def eval_for_chords_string(
     harmony_ids=None,
     graph_model=None,
     bilstm_model=None,
-    token_model=None
+    token_model=None,
+    adapter_model=None
 ):
     if file_path is not None:
         tokenized = tokenizer.encode(file_path)
@@ -22,24 +23,28 @@ def eval_for_chords_string(
     
     cos = torch.nn.CosineSimilarity()
     # prepare a 16-bar zero background for similarity per bar
-    per_bar_similarity = {
-        'graph': np.zeros(16),
-        'bilstm': np.zeros(16),
-        'token': np.zeros(16)
-    }
+    per_bar_similarity = {}
 
     device = None
     if graph_model is not None:
         device = next(graph_model.parameters()).device
+        per_bar_similarity['graph'] = np.zeros(m.num_bars)
     if bilstm_model is not None:
         device = next(bilstm_model.parameters()).device
+        per_bar_similarity['bilstm'] = np.zeros(m.num_bars)
     if token_model is not None:
         device = next(token_model.parameters()).device
+        per_bar_similarity['token'] = np.zeros(m.num_bars)
+    if adapter_model is not None:
+        device = next(adapter_model.parameters()).device
+        per_bar_similarity['adapter'] = np.zeros(m.num_bars)
 
     # query sequence embedding
     y_graph = get_graph_embeddings_from_string_with_model(in_seq, graph_model) if graph_model is not None else None
     y_bilstm = get_bilstm_embeddings_from_string_with_model(in_seq, bilstm_model) if bilstm_model is not None else None
     y_token_bilstm = get_token_bilstm_embeddings_from_string_with_model(in_seq, token_model) if token_model is not None else None
+    if adapter_model is not None and graph_model is not None and token_model is not None:
+        y_adapter = get_adapter_embeddings_from_string_with_model(in_seq, adapter_model, graph_model, token_model)
     num_seg_lens = 0
     seg_len, seg_step = 1, 1
     bar_start = 0
@@ -64,6 +69,11 @@ def eval_for_chords_string(
             seg_y_token = token_model(m.segment_tokens.unsqueeze(0).to(device), torch.tensor([m.segment_tokens.shape[0]]).to(device))
             tokens_sim = cos(y_token_bilstm, seg_y_token).item()
             per_bar_similarity['token'][bar_start] += tokens_sim
+        # adapter
+        if adapter_model is not None and graph_model is not None and token_model is not None:
+            seg_y_adapter = adapter_model(seg_y_graph.unsqueeze(0), seg_y_token)
+            adapter_sim = cos(y_adapter, seg_y_adapter).item()
+            per_bar_similarity['adapter'][bar_start] += adapter_sim
         # print(f'bar_start: {bar_start:02} - bar_end: {bar_end:02} | ')
         chord_symbols = [tokenizer.ids_to_tokens[chord_id.item()] for chord_id in m.segment_tokens]
         # print(chord_symbols)
