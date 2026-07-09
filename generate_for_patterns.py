@@ -9,6 +9,7 @@ from graph_utils import chord_id_features, get_graph_embeddings_from_string_with
 import os
 from tqdm import tqdm
 from eval_utils import eval_for_chords_string
+import pickle
 
 os.makedirs('MIDIs/no_guide', exist_ok=True)
 
@@ -435,3 +436,6 @@ for file_name, file_path in tqdm(zip(file_names, file_paths)):
                         'bars_of_interest': bars_of_interest
                     }
                     results_all.append(tmp_results)
+
+with open('data/results_all.pickle', 'wb') as f:
+    pickle.dump(results_all, f)
