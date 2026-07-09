@@ -95,6 +95,8 @@ def eval_for_chords_string(
         for h_id in h_ids_list:
             if h_id == tokenizer.bar_token_id:
                 bar_i += 1
+                if bar_i >= m.num_bars:
+                    break
             pos_i += 1
             if pos_i in positions_of_interest:
                 bars_of_interest.append(bar_i)

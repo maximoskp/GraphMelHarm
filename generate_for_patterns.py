@@ -63,7 +63,8 @@ guidance_position_weight = 0.2
 
 results_all = []
 
-for file_name, file_path in tqdm(zip(file_names, file_paths)):
+for i, (file_name, file_path) in enumerate(zip(file_names, file_paths)):
+    print(f'{i}/{len(file_paths)} - {file_path}')
     # no guidance
     tmp_file_path = f'MIDIs/no_guide/'
     tmp_name_suffix = f'{file_name}_no'
@@ -87,7 +88,7 @@ for file_name, file_path in tqdm(zip(file_names, file_paths)):
     )
     for guide_arch in ['LoRA']: #['LoRA', 'FiLM']:
         os.makedirs(f'MIDIs/{guide_arch}', exist_ok=True)
-        for contra in [True]: #[True, False]:
+        for contra in [True, False]:
             contra_folder = 'contra' if contra else 'no_contra'
             os.makedirs(f'MIDIs/{guide_arch}/{contra_folder}', exist_ok=True)
             # load and prepare GRAPH models
