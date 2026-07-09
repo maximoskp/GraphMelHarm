@@ -1,4 +1,4 @@
-from generate_utils import load_GraphModel, load_BiLSTMModel, load_TokenBiLSTMModel, load_FiLMSEModel, load_LoRASEModel, generate_files_with_nucleus
+from generate_utils import load_GraphModel, load_BiLSTMModel, load_TokenBiLSTMModel, load_LoRASEModel, load_AdapterModel, generate_files_with_nucleus
 from models_graph import HarmonicGraphEncoder
 import torch
 import numpy as np
@@ -8,6 +8,7 @@ from GridMLM_tokenizers import CSGridMLMTokenizer
 from graph_utils import chord_id_features, get_graph_embeddings_from_string_with_model, get_bilstm_embeddings_from_string_with_model, get_token_bilstm_embeddings_from_string_with_model, make_graph_ready_for_token_ids
 import os
 from tqdm import tqdm
+from eval_utils import eval_for_chords_string
 
 os.makedirs('MIDIs/no_guide', exist_ok=True)
 
@@ -22,10 +23,11 @@ tokenizer = CSGridMLMTokenizer(
 
 patterns = [
     'b_A#:7_@2;A:min6_@2',
-    'b_A#:7_@4b_A:min6_@4',
     'b_C#:7_@2;C:maj7_@2',
-    'b_G#:7_@2;G:7_@2'
-    'b_F:min6_@2;C:maj7@2'
+    'b_A#:7_@2;C:maj7_@2',
+    'b_G#:7_@2;G:7_@2',
+    'b_F:min6_@2;C:maj7_@2',
+    'b_C:maj_@2;D#:maj_@2b_F#:maj_@2;A:maj_@2'
 ]
 
 def absoluteFilePaths(directory):
@@ -42,7 +44,7 @@ tmp_file_names, tmp_file_paths = absoluteFilePaths('/media/maindisk/data/mel_har
 file_names += tmp_file_names
 file_paths += tmp_file_paths
 
-device_name = 'cuda:2'
+device_name = 'cuda:1'
 device = torch.device(device_name)
 
 graph_model_path = f'saved_models/LoRA/graph/graph_model_contra_jnhw.pt'
@@ -56,15 +58,22 @@ transformer_graph = load_LoRASEModel(
 graph_model.eval()
 transformer_graph.eval()
 
+guidance_position_weight = 0.2
+
+results_all = []
+
 for file_name, file_path in tqdm(zip(file_names, file_paths)):
     # no guidance
+    tmp_file_path = f'MIDIs/no_guide/'
+    tmp_name_suffix = f'{file_name}_no'
+    tmp_file_name = 'gen_' + tmp_name_suffix
     gen_out = generate_files_with_nucleus(
         transformer_graph,
         tokenizer,
         input_f_path=file_path,
         mxl_folder_out=None,
-        midi_folder_out=f'MIDIs/no_guide/',
-        name_suffix=f'{file_name}_no',
+        midi_folder_out=tmp_file_path,
+        name_suffix=tmp_name_suffix,
         guidance_vec = None,
         use_constraints=False,
         intertwine_bar_info=True,
@@ -77,7 +86,7 @@ for file_name, file_path in tqdm(zip(file_names, file_paths)):
     )
     for guide_arch in ['LoRA']: #['LoRA', 'FiLM']:
         os.makedirs(f'MIDIs/{guide_arch}', exist_ok=True)
-        for contra in [True, False]:
+        for contra in [True]: #[True, False]:
             contra_folder = 'contra' if contra else 'no_contra'
             os.makedirs(f'MIDIs/{guide_arch}/{contra_folder}', exist_ok=True)
             # load and prepare GRAPH models
@@ -116,22 +125,87 @@ for file_name, file_path in tqdm(zip(file_names, file_paths)):
             token_bilstm_model.eval()
             transformer_token_bilstm.eval()
 
-            for in_seq in tqdm(patterns):
-                y_graph = get_graph_embeddings_from_string_with_model(in_seq, graph_model)
-                y_bilstm = get_bilstm_embeddings_from_string_with_model(in_seq, bilstm_model)
-                y_token_bilstm = get_token_bilstm_embeddings_from_string_with_model(in_seq, token_bilstm_model)
+            # load and prepare ADAPTER models
+            adapter_model_path = f'saved_models/{guide_arch}/adapter/adapter_model_' + contra*'contra_' + 'jnhw.pt'
+            graph_adapter_model_path = f'saved_models/{guide_arch}/adapter/graph_model_' + contra*'contra_' + 'jnhw.pt'
+            token_adapter_model_path = f'saved_models/{guide_arch}/adapter/bilstm_model_' + contra*'contra_' + 'jnhw.pt'
+            transformer_adapter_path = f'saved_models/{guide_arch}/adapter/transformer_model_' + contra*'contra_' + 'jnhw.pt'
+            token_adapter_model = load_TokenBiLSTMModel(token_adapter_model_path, tokenizer, device)
+            graph_adapter_model = load_GraphModel(graph_adapter_model_path, device)
+            adapter_model = load_AdapterModel(adapter_model_path, device)
+            transformer_adapter_model = load_LoRASEModel(
+                tokenizer,
+                device,
+                checkpoint_path=transformer_adapter_path
+            )
+            token_adapter_model.eval()
+            graph_adapter_model.eval()
+            adapter_model.eval()
+            transformer_adapter_model.eval()
 
-                os.makedirs(f'MIDIs/{guide_arch}/{contra_folder}/{in_seq}', exist_ok=True)
-                for num_steps in [8, 16, 32]:
-                    os.makedirs(f'MIDIs/{guide_arch}/{contra_folder}/{in_seq}/steps_{num_steps}', exist_ok=True)
+            for num_steps in [16]:#[8, 16, 32]:
+                os.makedirs(f'MIDIs/{guide_arch}/{contra_folder}/steps_{num_steps}', exist_ok=True)
+
+                for in_seq in tqdm(patterns):
+                    # eval no guidance
+                    eval, activation_diff, bars_of_interest = eval_for_chords_string(
+                        in_seq, tokenizer,
+                        harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        graph_model=graph_model,
+                        bilstm_model=bilstm_model,
+                        token_model=token_bilstm_model,
+                        decoded_order=gen_out['decoded_positions_order'],
+                        num_guidance_steps=num_steps
+                    )
+                    eval_a, activation_diff_a, bars_of_interest_a = eval_for_chords_string(
+                        in_seq, tokenizer,
+                        harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        graph_model=graph_adapter_model,
+                        token_model=token_adapter_model,
+                        adapter_model=adapter_model,
+                        decoded_order=gen_out['decoded_positions_order'],
+                        num_guidance_steps=num_steps
+                    )
+                    tmp_results = {
+                        'path': os.path.join(tmp_file_path, tmp_file_name),
+                        'guidance_arch': guide_arch,
+                        'contra': contra,
+                        'num_guidance_steps': num_steps,
+                        'guidance_model': 'no',
+                    }
+                    for k, v in activation_diff.items():
+                        tmp_results[k] = v
+                    for k, v in activation_diff_a.items():
+                        tmp_results[k + '_a'] = v
+                    tmp_results['non_serializable'] = {
+                        'eval_object': eval,
+                        'eval_adapter_object': eval_a,
+                        'gen_out_object': gen_out,
+                        'bars_of_interest': bars_of_interest
+                    }
+                    results_all.append(tmp_results)
+
+                    y_graph = get_graph_embeddings_from_string_with_model(in_seq, graph_model)
+                    y_bilstm = get_bilstm_embeddings_from_string_with_model(in_seq, bilstm_model)
+                    y_token_bilstm = get_token_bilstm_embeddings_from_string_with_model(in_seq, token_bilstm_model)
+
+                    # adapter
+                    y_graph_adapter = get_graph_embeddings_from_string_with_model(in_seq, graph_adapter_model)
+                    y_token_adapter = get_token_bilstm_embeddings_from_string_with_model(in_seq, token_adapter_model)
+                    y_adapter = adapter_model(y_graph_adapter, y_token_adapter)
+
+                    os.makedirs(f'MIDIs/{guide_arch}/{contra_folder}/steps_{num_steps}/{in_seq}', exist_ok=True)
                     # graph guidance
+                    tmp_file_path = f'MIDIs/{guide_arch}/{contra_folder}/{in_seq}/steps_{num_steps}'
+                    tmp_name_suffix = f'{file_name}_graph'
+                    tmp_file_name = 'gen_' + tmp_name_suffix
                     gen_out = generate_files_with_nucleus(
                         transformer_graph,
                         tokenizer,
                         input_f_path=file_path,
                         mxl_folder_out=None,
-                        midi_folder_out=f'MIDIs/{guide_arch}/{contra_folder}/{in_seq}/steps_{num_steps}',
-                        name_suffix=f'{file_name}_graph',
+                        midi_folder_out=tmp_file_path,
+                        name_suffix=tmp_name_suffix,
                         guidance_vec = y_graph,
                         num_guidance_steps=num_steps,
                         use_constraints=False,
@@ -141,16 +215,57 @@ for file_name, file_path in tqdm(zip(file_names, file_paths)):
                         p=0.9,
                         unmasking_order='certain',
                         create_gen=True,
-                        create_real=False
+                        create_real=False,
+                        guidance_position_weight=guidance_position_weight
                     )
+                    # eval graph
+                    eval, activation_diff, bars_of_interest = eval_for_chords_string(
+                        in_seq, tokenizer,
+                        harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        graph_model=graph_model,
+                        bilstm_model=bilstm_model,
+                        token_model=token_bilstm_model,
+                        decoded_order=gen_out['decoded_positions_order'],
+                        num_guidance_steps=num_steps
+                    )
+                    eval_a, activation_diff_a, bars_of_interest_a = eval_for_chords_string(
+                        in_seq, tokenizer,
+                        harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        graph_model=graph_adapter_model,
+                        token_model=token_adapter_model,
+                        adapter_model=adapter_model,
+                        decoded_order=gen_out['decoded_positions_order'],
+                        num_guidance_steps=num_steps
+                    )
+                    tmp_results = {
+                        'path': os.path.join(tmp_file_path, tmp_file_name),
+                        'guidance_arch': guide_arch,
+                        'contra': contra,
+                        'num_guidance_steps': num_steps,
+                        'guidance_model': 'graph',
+                    }
+                    for k, v in activation_diff.items():
+                        tmp_results[k] = v
+                    for k, v in activation_diff_a.items():
+                        tmp_results[k + '_a'] = v
+                    tmp_results['non_serializable'] = {
+                        'eval_object': eval,
+                        'eval_adapter_object': eval_a,
+                        'gen_out_object': gen_out,
+                        'bars_of_interest': bars_of_interest
+                    }
+                    results_all.append(tmp_results)
+                    
                     # bilstm guidance
+                    tmp_name_suffix = f'{file_name}_bilstm'
+                    tmp_file_name = 'gen_' + tmp_name_suffix
                     gen_out = generate_files_with_nucleus(
                         transformer_bilstm,
                         tokenizer,
                         input_f_path=file_path,
                         mxl_folder_out=None,
-                        midi_folder_out=f'MIDIs/{guide_arch}/{contra_folder}/{in_seq}/steps_{num_steps}',
-                        name_suffix=f'{file_name}_bilstm',
+                        midi_folder_out=tmp_file_path,
+                        name_suffix=tmp_name_suffix,
                         guidance_vec = y_bilstm,
                         num_guidance_steps=num_steps,
                         use_constraints=False,
@@ -160,16 +275,57 @@ for file_name, file_path in tqdm(zip(file_names, file_paths)):
                         p=0.9,
                         unmasking_order='certain',
                         create_gen=True,
-                        create_real=False
+                        create_real=False,
+                        guidance_position_weight=guidance_position_weight
                     )
+                    # eval bilstm
+                    eval, activation_diff, bars_of_interest = eval_for_chords_string(
+                        in_seq, tokenizer,
+                        harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        graph_model=graph_model,
+                        bilstm_model=bilstm_model,
+                        token_model=token_bilstm_model,
+                        decoded_order=gen_out['decoded_positions_order'],
+                        num_guidance_steps=num_steps
+                    )
+                    eval_a, activation_diff_a, bars_of_interest_a = eval_for_chords_string(
+                        in_seq, tokenizer,
+                        harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        graph_model=graph_adapter_model,
+                        token_model=token_adapter_model,
+                        adapter_model=adapter_model,
+                        decoded_order=gen_out['decoded_positions_order'],
+                        num_guidance_steps=num_steps
+                    )
+                    tmp_results = {
+                        'path': os.path.join(tmp_file_path, tmp_file_name),
+                        'guidance_arch': guide_arch,
+                        'contra': contra,
+                        'num_guidance_steps': num_steps,
+                        'guidance_model': 'bilstm',
+                    }
+                    for k, v in activation_diff.items():
+                        tmp_results[k] = v
+                    for k, v in activation_diff_a.items():
+                        tmp_results[k + '_a'] = v
+                    tmp_results['non_serializable'] = {
+                        'eval_object': eval,
+                        'eval_adapter_object': eval_a,
+                        'gen_out_object': gen_out,
+                        'bars_of_interest': bars_of_interest
+                    }
+                    results_all.append(tmp_results)
+
                     # token guidance
+                    tmp_name_suffix = f'{file_name}_token'
+                    tmp_file_name = 'gen_' + tmp_name_suffix
                     gen_out = generate_files_with_nucleus(
                         transformer_token_bilstm,
                         tokenizer,
                         input_f_path=file_path,
                         mxl_folder_out=None,
-                        midi_folder_out=f'MIDIs/{guide_arch}/{contra_folder}/{in_seq}/steps_{num_steps}',
-                        name_suffix=f'{file_name}_token',
+                        midi_folder_out=tmp_file_path,
+                        name_suffix=tmp_name_suffix,
                         guidance_vec = y_token_bilstm,
                         num_guidance_steps=num_steps,
                         use_constraints=False,
@@ -179,5 +335,103 @@ for file_name, file_path in tqdm(zip(file_names, file_paths)):
                         p=0.9,
                         unmasking_order='certain',
                         create_gen=True,
-                        create_real=False
+                        create_real=False,
+                        guidance_position_weight=guidance_position_weight
                     )
+                    # eval token
+                    eval, activation_diff, bars_of_interest = eval_for_chords_string(
+                        in_seq, tokenizer,
+                        harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        graph_model=graph_model,
+                        bilstm_model=bilstm_model,
+                        token_model=token_bilstm_model,
+                        decoded_order=gen_out['decoded_positions_order'],
+                        num_guidance_steps=num_steps
+                    )
+                    eval_a, activation_diff_a, bars_of_interest_a = eval_for_chords_string(
+                        in_seq, tokenizer,
+                        harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        graph_model=graph_adapter_model,
+                        token_model=token_adapter_model,
+                        adapter_model=adapter_model,
+                        decoded_order=gen_out['decoded_positions_order'],
+                        num_guidance_steps=num_steps
+                    )
+                    tmp_results = {
+                        'path': os.path.join(tmp_file_path, tmp_file_name),
+                        'guidance_arch': guide_arch,
+                        'contra': contra,
+                        'num_guidance_steps': num_steps,
+                        'guidance_model': 'token',
+                    }
+                    for k, v in activation_diff.items():
+                        tmp_results[k] = v
+                    for k, v in activation_diff_a.items():
+                        tmp_results[k + '_a'] = v
+                    tmp_results['non_serializable'] = {
+                        'eval_object': eval,
+                        'eval_adapter_object': eval_a,
+                        'gen_out_object': gen_out,
+                        'bars_of_interest': bars_of_interest
+                    }
+                    results_all.append(tmp_results)
+
+                    # adapter guidance
+                    tmp_name_suffix = f'{file_name}_adapter'
+                    tmp_file_name = 'gen_' + tmp_name_suffix
+                    gen_out = generate_files_with_nucleus(
+                        transformer_adapter_model,
+                        tokenizer,
+                        input_f_path=file_path,
+                        mxl_folder_out=None,
+                        midi_folder_out=tmp_file_path,
+                        name_suffix=tmp_name_suffix,
+                        guidance_vec = y_adapter,
+                        num_guidance_steps=num_steps,
+                        use_constraints=False,
+                        intertwine_bar_info=True,
+                        normalize_tonality=True,
+                        temperature=1.0,
+                        p=0.9,
+                        unmasking_order='certain',
+                        create_gen=True,
+                        create_real=False,
+                        guidance_position_weight=guidance_position_weight
+                    )
+                    # eval adapter
+                    eval, activation_diff, bars_of_interest = eval_for_chords_string(
+                        in_seq, tokenizer,
+                        harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        graph_model=graph_model,
+                        bilstm_model=bilstm_model,
+                        token_model=token_bilstm_model,
+                        decoded_order=gen_out['decoded_positions_order'],
+                        num_guidance_steps=num_steps
+                    )
+                    eval_a, activation_diff_a, bars_of_interest_a = eval_for_chords_string(
+                        in_seq, tokenizer,
+                        harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        graph_model=graph_adapter_model,
+                        token_model=token_adapter_model,
+                        adapter_model=adapter_model,
+                        decoded_order=gen_out['decoded_positions_order'],
+                        num_guidance_steps=num_steps
+                    )
+                    tmp_results = {
+                        'path': os.path.join(tmp_file_path, tmp_file_name),
+                        'guidance_arch': guide_arch,
+                        'contra': contra,
+                        'num_guidance_steps': num_steps,
+                        'guidance_model': 'adapter',
+                    }
+                    for k, v in activation_diff.items():
+                        tmp_results[k] = v
+                    for k, v in activation_diff_a.items():
+                        tmp_results[k + '_a'] = v
+                    tmp_results['non_serializable'] = {
+                        'eval_object': eval,
+                        'eval_adapter_object': eval_a,
+                        'gen_out_object': gen_out,
+                        'bars_of_interest': bars_of_interest
+                    }
+                    results_all.append(tmp_results)

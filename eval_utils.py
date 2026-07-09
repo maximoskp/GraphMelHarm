@@ -5,6 +5,7 @@ from graph_utils import get_graph_embeddings_from_string_with_model, get_bilstm_
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+from copy import deepcopy
 
 def eval_for_chords_string(
     in_seq,
@@ -14,7 +15,9 @@ def eval_for_chords_string(
     graph_model=None,
     bilstm_model=None,
     token_model=None,
-    adapter_model=None
+    adapter_model=None,
+    decoded_order=None,
+    num_guidance_steps=None
 ):
     if file_path is not None:
         tokenized = tokenizer.encode(file_path)
@@ -81,6 +84,26 @@ def eval_for_chords_string(
         # print('============ =============== ===============')
         bar_start += seg_step
         bar_end = bar_start + seg_len
+
+    if num_guidance_steps is not None and decoded_order is not None:
+        positions_of_interest = np.sort(decoded_order[-num_guidance_steps:])
+
+        h_ids_list = harmony_ids
+        bars_of_interest = []
+        bar_i = -1
+        pos_i = -1
+        for h_id in h_ids_list:
+            if h_id == tokenizer.bar_token_id:
+                bar_i += 1
+            pos_i += 1
+            if pos_i in positions_of_interest:
+                bars_of_interest.append(bar_i)
+        bars_of_interest = np.array(list(set(bars_of_interest)))
+        activation_diff = {}
+        for k,v in per_bar_similarity.items():
+            vc = deepcopy(v)
+            activation_diff[k] = np.mean(vc[bars_of_interest]) - np.mean(np.delete(vc, bars_of_interest))
+        return per_bar_similarity, activation_diff, bars_of_interest
 
     return per_bar_similarity
 # end eval_for_chords_string

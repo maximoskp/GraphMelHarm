@@ -695,7 +695,8 @@ def get_token_bilstm_embeddings_from_string_with_model(s, token_bilstm_model, in
     device = next(token_bilstm_model.parameters()).device
     with torch.no_grad():
         y_bilstm = token_bilstm_model(
-            torch.tensor(chord_token_ids, dtype=torch.long).unsqueeze(0).to(device), 
+            # torch.tensor(chord_token_ids, dtype=torch.long).unsqueeze(0).to(device), 
+            chord_token_ids.clone().unsqueeze(0).to(device), 
             torch.tensor([len(chord_token_ids)]).to(device)
         )
     return y_bilstm
@@ -708,7 +709,8 @@ def get_adapter_embeddings_from_string_with_model(s, adapter_model, graph_model,
     with torch.no_grad():
         y_graph = graph_model(m.segment_graph)
         y_token = token_bilstm_model(
-            torch.tensor(chord_token_ids, dtype=torch.long).unsqueeze(0).to(device), 
+            # torch.tensor(chord_token_ids, dtype=torch.long).unsqueeze(0).to(device),
+            chord_token_ids.clone().unsqueeze(0).to(device),
             torch.tensor([len(chord_token_ids)]).to(device)
         )
         y_adapter = adapter_model(y_graph.unsqueeze(0), y_token)
