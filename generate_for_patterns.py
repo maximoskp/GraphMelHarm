@@ -10,6 +10,10 @@ import os
 from tqdm import tqdm
 from eval_utils import eval_for_chords_string
 import pickle
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 os.makedirs('MIDIs/no_guide', exist_ok=True)
 
@@ -40,8 +44,8 @@ def absoluteFilePaths(directory):
             file_paths.append(os.path.abspath(os.path.join(dirpath, f)))
     return file_names, file_paths
 
-file_names, file_paths = absoluteFilePaths('/media/maindisk/data/mel_harm_CA_all/nottingham_test/')
-tmp_file_names, tmp_file_paths = absoluteFilePaths('/media/maindisk/data/mel_harm_CA_all/gjt_CA_test')
+file_names, file_paths = absoluteFilePaths(os.getenv('VAL_NOTT'))
+tmp_file_names, tmp_file_paths = absoluteFilePaths(os.getenv('VAL_GJT'))
 file_names += tmp_file_names
 file_paths += tmp_file_paths
 

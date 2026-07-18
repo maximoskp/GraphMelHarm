@@ -109,3 +109,63 @@ def eval_for_chords_string(
 
     return per_bar_similarity
 # end eval_for_chords_string
+
+def get_vecser_for_file(
+    file_path,
+    tokenizer,
+    graph_model=None,
+    bilstm_model=None,
+    token_model=None,
+    adapter_model=None
+):
+    harmony_ids = tokenizer.encode(file_path)['harmony_ids']
+    m = make_graph_ready_for_token_ids(harmony_ids, tokenizer)
+    # prepare vecser object for piece
+    vecser = {
+        'chord_symbols': []
+    }
+    device = None
+    if graph_model is not None:
+        device = next(graph_model.parameters()).device
+        vecser['graph'] = []
+    if bilstm_model is not None:
+        device = next(bilstm_model.parameters()).device
+        vecser['bilstm'] = []
+    if token_model is not None:
+        device = next(token_model.parameters()).device
+        vecser['token'] = []
+    if adapter_model is not None:
+        device = next(adapter_model.parameters()).device
+        vecser['adapter'] = []
+    seg_len, seg_step = 1, 1
+    bar_start = 0
+    bar_end = bar_start + seg_len
+    while bar_end <= m.num_bars:
+        m.make_graph_of_segment(bar_start, bar_end)
+        m.make_bilstm_seq_of_segment(bar_start, bar_end)
+        m.make_token_seq_of_segment(bar_start, bar_end)
+        # graph
+        if graph_model is not None:
+            seg_y_graph = graph_model(m.segment_graph)
+            vecser['graph'].append(seg_y_graph.detach().cpu().numpy())
+        # bilstm
+        if bilstm_model is not None:
+            seg_y_bilstm = bilstm_model(m.segment_bilstm.unsqueeze(0).to(device), torch.tensor([m.segment_bilstm.shape[0]]).to(device))
+            vecser['bilstm'].append(seg_y_bilstm.detach().cpu().numpy())
+        # token
+        if token_model is not None:
+            seg_y_token = token_model(m.segment_tokens.unsqueeze(0).to(device), torch.tensor([m.segment_tokens.shape[0]]).to(device))
+            vecser['token'].append(seg_y_token.detach().cpu().numpy())
+        # adapter
+        if adapter_model is not None and graph_model is not None and token_model is not None:
+            seg_y_adapter = adapter_model(seg_y_graph.unsqueeze(0), seg_y_token)
+            vecser['adapter'].append(seg_y_adapter.detach().cpu().numpy())
+        # keep chord symbols for visualizing comparisons
+        chord_symbols = [tokenizer.ids_to_tokens[chord_id.item()] for chord_id in m.segment_tokens]
+        vecser['chord_symbols'].append(chord_symbols)
+        
+        bar_start += seg_step
+        bar_end = bar_start + seg_len
+
+    return vecser
+# end get_vecser_for_file
