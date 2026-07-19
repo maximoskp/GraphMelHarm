@@ -7,9 +7,7 @@ from tqdm import tqdm
 from GridMLM_tokenizers import CSGridMLMTokenizer
 from graph_utils import chord_id_features, get_graph_embeddings_from_string_with_model, get_bilstm_embeddings_from_string_with_model, get_token_bilstm_embeddings_from_string_with_model, make_graph_ready_for_token_ids
 import os
-from tqdm import tqdm
 from eval_utils import eval_for_chords_string
-import pickle
 from dotenv import load_dotenv
 
 # Load environment variables from .env file

@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import os
 from copy import deepcopy
 
+cos = torch.nn.CosineSimilarity()
+
 def eval_for_chords_string(
     in_seq,
     tokenizer,
@@ -24,7 +26,6 @@ def eval_for_chords_string(
         harmony_ids = tokenized['harmony_ids']
     m = make_graph_ready_for_token_ids(harmony_ids, tokenizer)
     
-    cos = torch.nn.CosineSimilarity()
     # prepare a 16-bar zero background for similarity per bar
     per_bar_similarity = {}
 
@@ -146,7 +147,7 @@ def get_vecser_for_file(
         m.make_token_seq_of_segment(bar_start, bar_end)
         # graph
         if graph_model is not None:
-            seg_y_graph = graph_model(m.segment_graph)
+            seg_y_graph = graph_model(m.segment_graph).unsqueeze(0)
             vecser['graph'].append(seg_y_graph.detach().cpu().numpy())
         # bilstm
         if bilstm_model is not None:
@@ -158,7 +159,7 @@ def get_vecser_for_file(
             vecser['token'].append(seg_y_token.detach().cpu().numpy())
         # adapter
         if adapter_model is not None and graph_model is not None and token_model is not None:
-            seg_y_adapter = adapter_model(seg_y_graph.unsqueeze(0), seg_y_token)
+            seg_y_adapter = adapter_model(seg_y_graph, seg_y_token)
             vecser['adapter'].append(seg_y_adapter.detach().cpu().numpy())
         # keep chord symbols for visualizing comparisons
         chord_symbols = [tokenizer.ids_to_tokens[chord_id.item()] for chord_id in m.segment_tokens]
@@ -169,3 +170,11 @@ def get_vecser_for_file(
 
     return vecser
 # end get_vecser_for_file
+
+def vecser_similarity_matrix(v1, v2):
+    m = np.zeros( (len(v1) , len(v2)) )
+    for i in range(len(v1)):
+        for j in range(len(v2)):
+            m[i,j] = cos( v1[i], v2[j] )
+    return m
+# end vecser_similarity_matrix
