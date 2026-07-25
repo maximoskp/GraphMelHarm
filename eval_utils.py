@@ -175,6 +175,44 @@ def vecser_similarity_matrix(v1, v2):
     m = np.zeros( (len(v1) , len(v2)) )
     for i in range(len(v1)):
         for j in range(len(v2)):
-            m[i,j] = cos( v1[i], v2[j] )
+            m[i,j] = cos( torch.tensor(v1[i]), torch.tensor(v2[j]) )
     return m
 # end vecser_similarity_matrix
+
+def vecser_similarity_evidence_for_files(
+    f1,
+    f2,
+    tokenizer,
+    graph_model=None,
+    bilstm_model=None,
+    token_model=None,
+    adapter_model=None,
+    topk=10
+):
+    v1 = get_vecser_for_file(
+        f1,
+        tokenizer,
+        graph_model=graph_model,
+        bilstm_model=bilstm_model,
+        token_model=token_model,
+        adapter_model=adapter_model
+    )
+    v2 = get_vecser_for_file(
+        f2,
+        tokenizer,
+        graph_model=graph_model,
+        bilstm_model=bilstm_model,
+        token_model=token_model,
+        adapter_model=adapter_model
+    )
+    m_adapter = vecser_similarity_matrix(v1['adapter'], v2['adapter'])
+    m_graph = vecser_similarity_matrix(v1['graph'], v2['graph'])
+    m_token = vecser_similarity_matrix(v1['token'], v2['token'])
+    # GRAPH evidence
+    arr = -m_graph
+    s = np.dstack(np.unravel_index(np.argsort(arr.ravel()), arr.shape))
+    res = 'Graph evidence:'
+    for i in range(topk):
+        res += f'{v1['chord_symbols'][s[0][i][0]]}-{v2['chord_symbols'][s[0][i][1]]}similarity value: {m_adapter[s[0][i][0], s[0][i][1]]}'
+    return res
+# end vecser_similarity_evidence_for_files
