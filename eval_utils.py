@@ -208,11 +208,91 @@ def vecser_similarity_evidence_for_files(
     m_adapter = vecser_similarity_matrix(v1['adapter'], v2['adapter'])
     m_graph = vecser_similarity_matrix(v1['graph'], v2['graph'])
     m_token = vecser_similarity_matrix(v1['token'], v2['token'])
+    # bars string
+    bars_string = 'Piece 1:\n'
+    bar_idx = 0
+    for chords in v1['chord_symbols']:
+        bars_string += f'bar {bar_idx}: '
+        for c in chords:
+            bars_string += f'{c} '
+        bar_idx += 1
+        bars_string += '\n'
+    bars_string += '\nPiece 2:\n'
+    bar_idx = 0
+    for chords in v2['chord_symbols']:
+        bars_string += f'bar {bar_idx}: '
+        for c in chords:
+            bars_string += f'{c} '
+        bar_idx += 1
+        bars_string += '\n'
     # GRAPH evidence
-    arr = -m_graph
-    s = np.dstack(np.unravel_index(np.argsort(arr.ravel()), arr.shape))
-    res = 'Graph evidence:'
-    for i in range(topk):
-        res += f'{v1['chord_symbols'][s[0][i][0]]}-{v2['chord_symbols'][s[0][i][1]]}similarity value: {m_adapter[s[0][i][0], s[0][i][1]]}'
-    return res
+    graph_res_dict = {}
+    graph_res = None
+    if graph_model is not None:
+        arr = -m_graph
+        s = np.dstack(np.unravel_index(np.argsort(arr.ravel()), arr.shape))
+        graph_res = 'Graph model evidence:\n'
+        res_kept = 0
+        i = 0
+        while i < s.shape[1] and res_kept < topk:
+            cs1 = v1['chord_symbols'][s[0][i][0]]
+            cs2 = v2['chord_symbols'][s[0][i][1]]
+            k = f'{v1['chord_symbols'][s[0][i][0]]}-{v2['chord_symbols'][s[0][i][1]]}'
+            if cs1 != cs2 and k not in graph_res_dict.keys():
+                graph_res_dict[k] = {
+                    'p1': f'piece 1, bar {s[0][i][0]}: {v1['chord_symbols'][s[0][i][0]]}',
+                    'p2': f'piece 2, bar {s[0][i][1]}: {v2['chord_symbols'][s[0][i][1]]}',
+                    'similarity': m_graph[s[0][i][0], s[0][i][1]]
+                }
+                res_kept += 1
+            i += 1
+        for k,v in graph_res_dict.items():
+            graph_res += f'{v['p1']} | {v['p2']} | {v['similarity']}\n'
+    # TOKEN evidence
+    token_res_dict = {}
+    token_res = None
+    if token_model is not None:
+        arr = -m_token
+        s = np.dstack(np.unravel_index(np.argsort(arr.ravel()), arr.shape))
+        token_res = 'Token model evidence:\n'
+        res_kept = 0
+        i = 0
+        while i < s.shape[1] and res_kept < topk:
+            cs1 = v1['chord_symbols'][s[0][i][0]]
+            cs2 = v2['chord_symbols'][s[0][i][1]]
+            k = f'{v1['chord_symbols'][s[0][i][0]]}-{v2['chord_symbols'][s[0][i][1]]}'
+            if cs1 != cs2 and k not in token_res_dict.keys():
+                token_res_dict[k] = {
+                    'p1': f'piece 1, bar {s[0][i][0]}: {v1['chord_symbols'][s[0][i][0]]}',
+                    'p2': f'piece 2, bar {s[0][i][1]}: {v2['chord_symbols'][s[0][i][1]]}',
+                    'similarity': m_token[s[0][i][0], s[0][i][1]]
+                }
+                res_kept += 1
+            i += 1
+        for k,v in token_res_dict.items():
+            token_res += f'{v['p1']} | {v['p2']} | {v['similarity']}\n'
+    # ADAPTER evidence
+    adapter_res_dict = {}
+    adapter_res = None
+    if adapter_model is not None:
+        arr = -m_adapter
+        s = np.dstack(np.unravel_index(np.argsort(arr.ravel()), arr.shape))
+        adapter_res = 'Adapter model evidence:\n'
+        res_kept = 0
+        i = 0
+        while i < s.shape[1] and res_kept < topk:
+            cs1 = v1['chord_symbols'][s[0][i][0]]
+            cs2 = v2['chord_symbols'][s[0][i][1]]
+            k = f'{v1['chord_symbols'][s[0][i][0]]}-{v2['chord_symbols'][s[0][i][1]]}'
+            if cs1 != cs2 and k not in adapter_res_dict.keys():
+                adapter_res_dict[k] = {
+                    'p1': f'piece 1, bar {s[0][i][0]}: {v1['chord_symbols'][s[0][i][0]]}',
+                    'p2': f'piece 2, bar {s[0][i][1]}: {v2['chord_symbols'][s[0][i][1]]}',
+                    'similarity': m_adapter[s[0][i][0], s[0][i][1]]
+                }
+                res_kept += 1
+            i += 1
+        for k,v in adapter_res_dict.items():
+            adapter_res += f'{v['p1']} | {v['p2']} | {v['similarity']}\n'
+    return bars_string, graph_res, token_res, adapter_res
 # end vecser_similarity_evidence_for_files
