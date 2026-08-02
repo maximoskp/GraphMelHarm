@@ -19,7 +19,9 @@ def eval_for_chords_string(
     token_model=None,
     adapter_model=None,
     decoded_order=None,
-    num_guidance_steps=None
+    num_guidance_steps=None,
+    seg_len=1,
+    seg_step = 1
 ):
     if file_path is not None:
         tokenized = tokenizer.encode(file_path)
@@ -50,7 +52,6 @@ def eval_for_chords_string(
     if adapter_model is not None and graph_model is not None and token_model is not None:
         y_adapter = get_adapter_embeddings_from_string_with_model(in_seq, adapter_model, graph_model, token_model)
     num_seg_lens = 0
-    seg_len, seg_step = 1, 1
     bar_start = 0
     bar_end = bar_start + seg_len
     while bar_end <= m.num_bars:
@@ -111,13 +112,75 @@ def eval_for_chords_string(
     return per_bar_similarity
 # end eval_for_chords_string
 
+def vec_ser_evidence_for_sequence_in_file(
+    in_seq,
+    file_path,
+    tokenizer,
+    graph_model=None,
+    bilstm_model=None,
+    token_model=None,
+    adapter_model=None,
+    max_seq_len=16
+):
+    device = None
+    if graph_model is not None:
+        device = next(graph_model.parameters()).device
+    if bilstm_model is not None:
+        device = next(bilstm_model.parameters()).device
+    if token_model is not None:
+        device = next(token_model.parameters()).device
+    if adapter_model is not None:
+        device = next(adapter_model.parameters()).device
+    # in_seq embedding
+    y_graph = get_graph_embeddings_from_string_with_model(in_seq, graph_model) if graph_model is not None else None
+    y_bilstm = get_bilstm_embeddings_from_string_with_model(in_seq, bilstm_model) if bilstm_model is not None else None
+    y_token_bilstm = get_token_bilstm_embeddings_from_string_with_model(in_seq, token_model) if token_model is not None else None
+    if adapter_model is not None and graph_model is not None and token_model is not None:
+        y_adapter = get_adapter_embeddings_from_string_with_model(in_seq, adapter_model, graph_model, token_model)
+    else:
+        y_adapter = None
+    # prepare a structure for easier access of the in_seq embedding
+    in_seq_embedings = {
+        'graph': y_graph,
+        'bilstm': y_bilstm,
+        'token': y_token_bilstm,
+        'adapter': y_adapter
+    }
+    # initialize evidence for all lengths
+    evidence_per_length = { i: {} for i in range(1, max_seq_len)}
+    for seq_len in range(1, max_seq_len):
+        vs = get_vecser_for_file(
+            file_path,
+            tokenizer,
+            graph_model,
+            bilstm_model,
+            token_model,
+            adapter_model,
+            seq_len,
+            seg_step = 1
+        )
+        for k,v in vs.items():
+            if v is not None:
+                if k == 'chord_symbols':
+                    evidence_per_length[seq_len][k] = v
+                else:
+                    if len(v) > 0:
+                        tmp_evidence = np.zeros(len(v))
+                        for b in range(len(v)):
+                            tmp_evidence[b] = cos( torch.tensor(v[b], device=device), in_seq_embedings[k] )
+                        evidence_per_length[seq_len][k] = tmp_evidence
+    return evidence_per_length
+# end vec_ser_evidence_for_sequence_in_file
+
 def get_vecser_for_file(
     file_path,
     tokenizer,
     graph_model=None,
     bilstm_model=None,
     token_model=None,
-    adapter_model=None
+    adapter_model=None,
+    seg_len=1,
+    seg_step = 1
 ):
     harmony_ids = tokenizer.encode(file_path)['harmony_ids']
     m = make_graph_ready_for_token_ids(harmony_ids, tokenizer)
@@ -138,7 +201,6 @@ def get_vecser_for_file(
     if adapter_model is not None:
         device = next(adapter_model.parameters()).device
         vecser['adapter'] = []
-    seg_len, seg_step = 1, 1
     bar_start = 0
     bar_end = bar_start + seg_len
     while bar_end <= m.num_bars:
@@ -187,7 +249,9 @@ def vecser_similarity_evidence_for_files(
     bilstm_model=None,
     token_model=None,
     adapter_model=None,
-    topk=10
+    topk=10,
+    seg_len=1,
+    seg_step = 1
 ):
     v1 = get_vecser_for_file(
         f1,
@@ -195,7 +259,9 @@ def vecser_similarity_evidence_for_files(
         graph_model=graph_model,
         bilstm_model=bilstm_model,
         token_model=token_model,
-        adapter_model=adapter_model
+        adapter_model=adapter_model,
+        seg_len=seg_len,
+        seg_step=seg_step
     )
     v2 = get_vecser_for_file(
         f2,
@@ -203,7 +269,9 @@ def vecser_similarity_evidence_for_files(
         graph_model=graph_model,
         bilstm_model=bilstm_model,
         token_model=token_model,
-        adapter_model=adapter_model
+        adapter_model=adapter_model,
+        seg_len=seg_len,
+        seg_step=seg_step
     )
     m_adapter = vecser_similarity_matrix(v1['adapter'], v2['adapter'])
     m_graph = vecser_similarity_matrix(v1['graph'], v2['graph'])
