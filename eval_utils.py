@@ -112,6 +112,93 @@ def eval_for_chords_string(
     return per_bar_similarity
 # end eval_for_chords_string
 
+def extract_topk_sequences_from_evidence(evidence, k):
+    topk_per_model = {}
+
+    for model_name in ['bilstm', 'token', 'graph', 'adapter']:
+        aggregated_similarities = []
+        aggregated_chord_symbols = []
+        aggregated_starting_bars = []
+        aggregated_lengths = []
+
+        for idx in evidence.keys():
+            model_exists = False
+            if model_name in evidence[idx].keys():
+                model_exists = True
+                tmp_evidence = evidence[idx][model_name]
+                chord_symbols = evidence[idx]['chord_symbols']
+                starting_bars = list(range(len(chord_symbols)))
+
+                evidence_sort = -np.sort(-tmp_evidence)
+                evidence_arg_sort = np.argsort(-tmp_evidence)
+
+                for i in range(len(chord_symbols)):
+                    aggregated_similarities.append(evidence_sort[i])
+                    aggregated_chord_symbols.append(chord_symbols[evidence_arg_sort[i]])
+                    aggregated_starting_bars.append(starting_bars[evidence_arg_sort[i]])
+                    aggregated_lengths.append(idx)
+
+        if model_exists:
+            # sort all agregated
+            aggregated_similarities = np.array(aggregated_similarities)
+            aggregated_sort = -np.sort(-aggregated_similarities)
+            aggregated_arg_sort = np.argsort(-aggregated_similarities)
+
+            topk_similarities = []
+            topk_chord_symbols = []
+            topk_starting_bars = []
+            topk_lengths = []
+
+            for i in range(k):
+                topk_similarities.append(aggregated_sort[i])
+                topk_chord_symbols.append(aggregated_chord_symbols[aggregated_arg_sort[i]])
+                topk_starting_bars.append(aggregated_starting_bars[aggregated_arg_sort[i]])
+                topk_lengths.append(aggregated_lengths[aggregated_arg_sort[i]])
+
+            topk_per_model[model_name] = {
+                'similarities': topk_similarities,
+                'chord_symbols': topk_chord_symbols,
+                'starting_bars': topk_starting_bars,
+                'bar_lengths': topk_lengths
+            }
+    return topk_per_model
+# end extract_topk_sequences_from_evidence
+
+def text_topk_of_chords_string_in_file(
+    in_seq,
+    tokenizer,
+    file_path=None,
+    graph_model=None,
+    bilstm_model=None,
+    token_model=None,
+    adapter_model=None,
+    max_seq_len=16,
+    k=5
+):
+    evidence = vec_ser_evidence_for_sequence_in_file(
+        in_seq,
+        file_path,
+        tokenizer,
+        graph_model=graph_model,
+        bilstm_model=bilstm_model,
+        token_model=token_model,
+        adapter_model=adapter_model,
+        max_seq_len=max_seq_len
+    )
+    topk_per_model = extract_topk_sequences_from_evidence(evidence, k)
+    text_descriptions = {tmp_key: [] for tmp_key in topk_per_model.keys()}
+    for tmp_key, tmp_value in topk_per_model.items():
+        if tmp_key == 'chord_symbols':
+            text_descriptions[tmp_key] = tmp_value
+        else:
+            for i in range(len(tmp_value['similarities'])):
+                start_bar = tmp_value['starting_bars'][i]
+                end_bar = tmp_value['starting_bars'][i] + tmp_value['bar_lengths'][i] - 1
+                tmp_txt = f'bars {start_bar} - {end_bar}: {tmp_value['chord_symbols'][i]}, similarity: {tmp_value['similarities'][i]}'
+                text_descriptions[tmp_key].append(tmp_txt)
+    return text_descriptions
+# end text_topk_of_chords_string_in_file
+
 def vec_ser_evidence_for_sequence_in_file(
     in_seq,
     file_path,
