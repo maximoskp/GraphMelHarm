@@ -149,11 +149,14 @@ def extract_topk_sequences_from_evidence(evidence, k):
             topk_starting_bars = []
             topk_lengths = []
 
-            for i in range(k):
-                topk_similarities.append(aggregated_sort[i])
-                topk_chord_symbols.append(aggregated_chord_symbols[aggregated_arg_sort[i]])
-                topk_starting_bars.append(aggregated_starting_bars[aggregated_arg_sort[i]])
-                topk_lengths.append(aggregated_lengths[aggregated_arg_sort[i]])
+            i = 0
+            while i < len(aggregated_sort) and len(topk_similarities) < k:
+                if aggregated_chord_symbols[aggregated_arg_sort[i]] not in topk_chord_symbols:
+                    topk_similarities.append(aggregated_sort[i])
+                    topk_chord_symbols.append(aggregated_chord_symbols[aggregated_arg_sort[i]])
+                    topk_starting_bars.append(aggregated_starting_bars[aggregated_arg_sort[i]])
+                    topk_lengths.append(aggregated_lengths[aggregated_arg_sort[i]])
+                i += 1
 
             topk_per_model[model_name] = {
                 'similarities': topk_similarities,
@@ -163,6 +166,53 @@ def extract_topk_sequences_from_evidence(evidence, k):
             }
     return topk_per_model
 # end extract_topk_sequences_from_evidence
+
+def ensure_in_seq_string_form(in_seq):
+    # We need to check what in_seq is.
+    # in_seq can be a string of chords with bar and time information - we leave it as it is,
+    if type(in_seq) is str:
+        in_seq_str = deepcopy(in_seq)
+    elif type(in_seq) is list:
+        if type(in_seq[0]) is str:
+            # a list of chords regardless of bar and time structure - 
+            # evenly spaced chords every 2 beats in 4/4
+            in_seq_str = 'b_'
+            i = 0
+            while i < len(in_seq):
+                in_seq_str.append( in_seq[i] + '@2' )
+                i += 1
+                if i < len(in_seq) and i%2 == 0:
+                    in_seq_str += 'b_'
+                else:
+                    in_seq_str += ';'
+        else:
+            # or a list of lists of chords per bar, without time information
+            in_seq_str = ''
+            for b in in_seq:
+                in_seq_str += 'b_'
+                for i, c in enumerate(b):
+                    in_seq_str += c
+                    if i < len(b):
+                        in_seq_str += ';'
+    return in_seq_str
+# end ensure_in_seq_string_form
+
+def ensure_in_flat_chord_symbols_list(in_seq):
+    in_seq_list = []
+    if type(in_seq) is str:
+        bar_split = in_seq.split('b_')
+        for b in bar_split:
+            if b != '':
+                chord_split = b.split(';')
+                for c in chord_split:
+                    time_split = c.split('_@')
+                    in_seq_list.append(time_split[0])
+    elif type(in_seq) is list and type(in_seq[0]) is list:
+        for bars in in_seq:
+            for b in bars:
+                in_seq.append(b)
+    return in_seq_list
+# end ensure_in_flat_chord_symbols_list
 
 def text_topk_of_chords_string_in_file(
     in_seq,
@@ -175,8 +225,10 @@ def text_topk_of_chords_string_in_file(
     max_seq_len=16,
     k=5
 ):
-    evidence = vec_ser_evidence_for_sequence_in_file(
-        in_seq,
+    in_seq_str = ensure_in_seq_string_form(in_seq)
+    in_seq_list = ensure_in_flat_chord_symbols_list(in_seq)
+    bars_string, evidence = vec_ser_evidence_for_sequence_in_file(
+        in_seq_str,
         file_path,
         tokenizer,
         graph_model=graph_model,
@@ -194,9 +246,13 @@ def text_topk_of_chords_string_in_file(
             for i in range(len(tmp_value['similarities'])):
                 start_bar = tmp_value['starting_bars'][i]
                 end_bar = tmp_value['starting_bars'][i] + tmp_value['bar_lengths'][i] - 1
-                tmp_txt = f'bars {start_bar} - {end_bar}: {tmp_value['chord_symbols'][i]}, similarity: {tmp_value['similarities'][i]}'
+                tmp_txt = (
+                    f"query: {in_seq_list} | "
+                    f"found in bars {start_bar} - {end_bar}: {tmp_value['chord_symbols'][i]}, "
+                    f" with similarity: {tmp_value['similarities'][i]}"
+                )
                 text_descriptions[tmp_key].append(tmp_txt)
-    return text_descriptions
+    return bars_string, in_seq_list, text_descriptions
 # end text_topk_of_chords_string_in_file
 
 def vec_ser_evidence_for_sequence_in_file(
@@ -233,6 +289,26 @@ def vec_ser_evidence_for_sequence_in_file(
         'token': y_token_bilstm,
         'adapter': y_adapter
     }
+    # make bars strings
+    vs = get_vecser_for_file(
+        file_path,
+        tokenizer,
+        graph_model,
+        bilstm_model,
+        token_model,
+        adapter_model,
+        seg_len=1,
+        seg_step = 1
+    )
+    # bars string
+    bars_string = 'Piece:\n'
+    bar_idx = 0
+    for chords in vs['chord_symbols']:
+        bars_string += f'bar {bar_idx}: '
+        for c in chords:
+            bars_string += f'{c} '
+        bar_idx += 1
+        bars_string += '\n'
     # initialize evidence for all lengths
     evidence_per_length = { i: {} for i in range(1, max_seq_len)}
     for seq_len in range(1, max_seq_len):
@@ -256,7 +332,7 @@ def vec_ser_evidence_for_sequence_in_file(
                         for b in range(len(v)):
                             tmp_evidence[b] = cos( torch.tensor(v[b], device=device), in_seq_embedings[k] )
                         evidence_per_length[seq_len][k] = tmp_evidence
-    return evidence_per_length
+    return bars_string, evidence_per_length
 # end vec_ser_evidence_for_sequence_in_file
 
 def get_vecser_for_file(
