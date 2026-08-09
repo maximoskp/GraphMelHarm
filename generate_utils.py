@@ -332,7 +332,7 @@ def load_AdapterModel(checkpoint_path, device):
     return adapter_model
 # end
 
-def nucleus_token_by_token_generate(
+def nucleus_token_by_token_generate_old(
         model,
         melody_grid,            # (1, seq_len, input_dim)
         guidance_vector,        # (1, guidance_dim) or None
@@ -469,6 +469,171 @@ def nucleus_token_by_token_generate(
             pos = masked_positions[-1].item()
         else:
             pos = masked_positions[torch.randint(0, masked_positions.numel(), (1,))].item()
+
+        # Mask out invalid predictions if enforcing force_fill
+        if force_fill and (pad_token_id is not None and nc_token_id is not None):
+            for i in range(seq_len):
+                if i <= last_active_index:
+                    logits[0, i, pad_token_id] = float('-inf')
+                    logits[0, i, nc_token_id] = float('-inf')
+                    if bar_token_id is not None:
+                        logits[0, i, bar_token_id] = float('-inf')
+                else:
+                    logits[0, i, :] = float('-inf')
+                    logits[0, i, pad_token_id] = 1.0
+
+        # --- Nucleus sampling step ---
+        logits_pos = logits[0, pos] / temperature
+        logits_pos[ mask_token_id ] = logits_pos.min().item()/100  # prevent selecting mask token
+        probs_pos = torch.softmax(logits_pos, dim=-1)
+
+        # sort probs descending
+        sorted_probs, sorted_idx = torch.sort(probs_pos, descending=True)
+        cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+
+        # mask out tokens beyond nucleus p
+        nucleus_mask = cumulative_probs <= p
+        nucleus_mask[0] = True  # keep at least one token
+        nucleus_probs = sorted_probs[nucleus_mask]
+        nucleus_idx = sorted_idx[nucleus_mask]
+
+        # renormalize
+        nucleus_probs = nucleus_probs / nucleus_probs.sum()
+
+        # sample
+        sampled_idx = torch.multinomial(nucleus_probs, 1).item()
+        token = nucleus_idx[sampled_idx].item()
+
+        # update harmony
+        visible_harmony[0, pos] = token
+        decoded_positions_ordered.append(pos)
+        # if num_guidance_steps is not None and guidance_embedding is not None:
+        #     if num_guidance_steps < len(decoded_positions_ordered):
+        #         guidance_embedding = None
+        #         # print(f'stopping guidance - decoded: {decoded_positions_ordered}')
+        step += 1
+    if return_positions:
+        return visible_harmony, decoded_positions_ordered
+    return visible_harmony
+# end nucleus_token_by_token_generate_old
+
+def nucleus_token_by_token_generate(
+        model,
+        melody_grid,            # (1, seq_len, input_dim)
+        guidance_vector,        # (1, guidance_dim) or None
+        mask_token_id,          # token ID used for masking
+        temperature=1.0,        # optional softmax temperature
+        pad_token_id=None,      # token ID for <pad>
+        nc_token_id=None,       # token ID for <nc>
+        bar_token_id=None,       # token ID for <bar>
+        force_fill=True,        # disallow <pad>/<nc> before melody ends
+        chord_constraints=None, # chord + bar constraints
+        p=0.9,                  # nucleus threshold
+        unmasking_order='certain', # in ['random', 'start', 'end', 'certain', 'uncertain'],
+        return_positions=False,
+        num_guidance_steps=None,
+        guidance_position_weight=0.2
+    ):
+    device = melody_grid.device
+    seq_len = melody_grid.shape[1]
+
+    decoded_positions_ordered = []
+
+    # --- 1. Initialize ---
+    visible_harmony = torch.full((1, seq_len), mask_token_id, dtype=torch.long, device=device)
+    if chord_constraints is not None:
+        idxs = torch.logical_and(chord_constraints != nc_token_id,
+                                 chord_constraints != pad_token_id)
+        visible_harmony[idxs] = chord_constraints[idxs]
+    # Compute last active melody index if forcing fill
+    if force_fill:
+        active = (melody_grid != 0).any(dim=-1).squeeze(0)  # shape: (seq_len,)
+        try:
+            last_active_index = active.nonzero(as_tuple=True)[0].max().item()
+        except:
+            last_active_index = -1
+    else:
+        last_active_index = -1
+
+    step = 0
+    # guidance_embedding=guidance_vector.to(model.device) if guidance_vector is not None else None
+    
+    while (visible_harmony == mask_token_id).any():
+        if num_guidance_steps is not None and guidance_vector is not None:
+            if (visible_harmony == mask_token_id).sum() <= num_guidance_steps:
+                guidance_embedding=guidance_vector.to(model.device) if guidance_vector is not None else None
+            else:
+                guidance_embedding = None
+                # print(f'stopping guidance - decoded: {decoded_positions_ordered}')
+        else:
+            guidance_embedding = None
+        with torch.no_grad():
+            logits = model(
+                melody_grid=melody_grid.to(model.device),
+                harmony_tokens=visible_harmony.to(model.device),
+                z_g=guidance_embedding,
+            )  # (1, seq_len, vocab_size)
+            if guidance_vector is not None:
+                logits_guidance = model(
+                    melody_grid=melody_grid.to(model.device),
+                    harmony_tokens=visible_harmony.to(model.device),
+                    z_g=guidance_vector.to(model.device)
+                )
+            else:
+                logits_guidance = None
+            # examine what happens without guidance
+            if guidance_embedding is not None:
+                logits_no_guidance = model(
+                    melody_grid=melody_grid.to(model.device),
+                    harmony_tokens=visible_harmony.to(model.device),
+                    z_g=None,
+                )
+        # --- Masked position selection ---
+        masked_positions = (visible_harmony == mask_token_id).squeeze(0).nonzero(as_tuple=True)[0]
+        if masked_positions.numel() == 0:
+            break
+        masked_positions = masked_positions.to(model.device)
+        probs = torch.softmax(logits[0, masked_positions] / temperature, dim=-1)
+        entropies = -(probs * probs.clamp_min(1e-9).log()).sum(dim=-1)
+        # if we are still not in guidance mode
+        entropies_guidance = None
+        if guidance_embedding is None:
+            if guidance_vector is not None:
+                probs_guidance = torch.softmax(logits_guidance[0, masked_positions] / temperature, dim=-1)
+                entropies_guidance = -(probs_guidance * probs_guidance.clamp_min(1e-9).log()).sum(dim=-1)
+        # check probs without guidance
+        # and influence position selection based on difference
+        if entropies_guidance is not None:
+            combined_score = entropies.clone()
+            if num_guidance_steps is not None and num_guidance_steps > 0:
+                k = min(num_guidance_steps, entropies_guidance.numel())
+                if k > 0:
+                    _, guidance_order = torch.topk(entropies_guidance, k, largest=False)
+                    combined_score[guidance_order] = float('inf')
+        else:
+            combined_score = entropies.clone()
+        # end if - guidance vs unguidance component
+        # print('entropies: ', entropies)
+        # print('entropies_guidance: ', entropies_guidance)
+        # print('combined_score: ', combined_score)
+
+        if unmasking_order == 'random':
+            pos = masked_positions[torch.randint(0, masked_positions.numel(), (1,))].item()
+        elif unmasking_order == 'uncertain':
+            pos = masked_positions[torch.argmax(combined_score)].item()
+        elif unmasking_order == 'certain':
+            pos = masked_positions[torch.argmin(combined_score)].item()
+        elif unmasking_order == 'start':
+            pos = masked_positions[0].item()
+        elif unmasking_order == 'end':
+            pos = masked_positions[-1].item()
+        else:
+            pos = masked_positions[torch.randint(0, masked_positions.numel(), (1,))].item()
+        # print('torch.argmin(combined_score): ', torch.argmin(combined_score))
+        # print('masked_positions: ', masked_positions)
+        # print('pos: ', pos)
+        # print('entropies.shape: ', entropies.shape)
+        # print('masked_positions.shape: ', masked_positions.shape)
 
         # Mask out invalid predictions if enforcing force_fill
         if force_fill and (pad_token_id is not None and nc_token_id is not None):
