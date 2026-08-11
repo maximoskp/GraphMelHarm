@@ -106,7 +106,10 @@ def eval_for_chords_string(
         activation_diff = {}
         for k,v in per_bar_similarity.items():
             vc = deepcopy(v)
-            activation_diff[k] = np.mean(vc[bars_of_interest]) - np.mean(np.delete(vc, bars_of_interest))
+            try:
+                activation_diff[k] = np.mean(vc[bars_of_interest]) - np.mean(np.delete(vc, bars_of_interest))
+            except:
+                print(bars_of_interest)
         return per_bar_similarity, activation_diff, bars_of_interest
 
     return per_bar_similarity
@@ -179,11 +182,11 @@ def ensure_in_seq_string_form(in_seq):
             in_seq_str = 'b_'
             i = 0
             while i < len(in_seq):
-                in_seq_str.append( in_seq[i] + '@2' )
+                in_seq_str += in_seq[i] + '_@2'
                 i += 1
                 if i < len(in_seq) and i%2 == 0:
                     in_seq_str += 'b_'
-                else:
+                elif i < i < len(in_seq):
                     in_seq_str += ';'
         else:
             # or a list of lists of chords per bar, without time information
@@ -191,7 +194,7 @@ def ensure_in_seq_string_form(in_seq):
             for b in in_seq:
                 in_seq_str += 'b_'
                 for i, c in enumerate(b):
-                    in_seq_str += c
+                    in_seq_str += c + '_@2'
                     if i < len(b):
                         in_seq_str += ';'
     return in_seq_str

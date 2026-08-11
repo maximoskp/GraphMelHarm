@@ -25,12 +25,14 @@ tokenizer = CSGridMLMTokenizer(
 )
 
 patterns = [
-    'b_A#:7_@2;A:min6_@2',
-    'b_C#:7_@2;C:maj7_@2',
-    'b_A#:7_@2;C:maj7_@2',
-    'b_G#:7_@2;G:7_@2',
-    'b_F:min6_@2;C:maj7_@2',
-    'b_C:maj_@2;D#:maj_@2b_F#:maj_@2;A:maj_@2'
+    'b_E:7_@2;A:9_@2',
+    'b_G:7_@2;D:9_@2',
+    'b_C#:hdim7_@2;D#:min_@2',
+    'b_C:dim_@2;E:maj_@2',
+    'b_A:min_@2;C#:maj_@2',
+    'b_G:maj_@2;A#:11_@2',
+    'b_C#:maj_@2;F#:maj9_@2',
+    'b_D#:minmaj7_@2;B:maj6_@2',
 ]
 
 def absoluteFilePaths(directory):

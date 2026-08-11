@@ -597,10 +597,12 @@ def nucleus_token_by_token_generate(
         entropies = -(probs * probs.clamp_min(1e-9).log()).sum(dim=-1)
         # if we are still not in guidance mode
         entropies_guidance = None
+        probs_diffs = None
         if guidance_embedding is None:
             if guidance_vector is not None:
                 probs_guidance = torch.softmax(logits_guidance[0, masked_positions] / temperature, dim=-1)
                 entropies_guidance = -(probs_guidance * probs_guidance.clamp_min(1e-9).log()).sum(dim=-1)
+                probs_diffs = torch.abs(probs - probs_guidance).sum(dim=-1)
         # check probs without guidance
         # and influence position selection based on difference
         if entropies_guidance is not None:
@@ -608,13 +610,17 @@ def nucleus_token_by_token_generate(
             if num_guidance_steps is not None and num_guidance_steps > 0:
                 k = min(num_guidance_steps, entropies_guidance.numel())
                 if k > 0:
+                    # print('entropies_guidance: ', entropies_guidance.shape)
+                    # print('logits_diffs: ', probs_diffs.shape)
                     _, guidance_order = torch.topk(entropies_guidance, k, largest=False)
+                    # _, guidance_order = torch.topk(probs_diffs, k, largest=True)
                     combined_score[guidance_order] = float('inf')
         else:
             combined_score = entropies.clone()
         # end if - guidance vs unguidance component
         # print('entropies: ', entropies)
         # print('entropies_guidance: ', entropies_guidance)
+        # print('logits_diffs: ', probs_diffs)
         # print('combined_score: ', combined_score)
 
         if unmasking_order == 'random':
@@ -651,7 +657,7 @@ def nucleus_token_by_token_generate(
         logits_pos = logits[0, pos] / temperature
         logits_pos[ mask_token_id ] = logits_pos.min().item()/100  # prevent selecting mask token
         probs_pos = torch.softmax(logits_pos, dim=-1)
-
+        
         # sort probs descending
         sorted_probs, sorted_idx = torch.sort(probs_pos, descending=True)
         cumulative_probs = torch.cumsum(sorted_probs, dim=-1)

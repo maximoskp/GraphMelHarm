@@ -3,6 +3,7 @@ from GridMLM_tokenizers import CSGridMLMTokenizer
 from data_utils import CSGridMLMDataset, CSGridMLM_collate_fn
 import os
 from tqdm import tqdm
+import numpy as np
 import pickle
 
 from dotenv import load_dotenv
@@ -48,7 +49,8 @@ for ds in [train_dataset_hook, train_dataset_gjt, train_dataset_nott, train_data
     print(f'processing dataset {dataset_idx}')
     dataset_idx += 1
     for d in tqdm(ds):
-        harmony_ids = d['harmony_ids']
+        harmony_ids = np.array(d['harmony_ids'])
+        harmony_ids = harmony_ids[harmony_ids > tokenizer.bar_token_id]
         for i in range(len(harmony_ids)-1):
             tmp_transition_key = str(harmony_ids[i]) + '-' + str(harmony_ids[i+1])
             tmp_chord_key = harmony_ids[i]
