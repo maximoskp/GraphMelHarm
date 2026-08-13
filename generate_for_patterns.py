@@ -31,7 +31,7 @@ patterns = [
     'b_C:dim_@2;E:maj_@2',
     'b_A:min_@2;C#:maj_@2',
     'b_G:maj_@2;A#:11_@2',
-    'b_C#:maj_@2;F#:maj9_@2',
+    'b_E:maj13_@2;G#:sus2_@2',
     'b_D#:minmaj7_@2;B:maj6_@2',
 ]
 
@@ -149,7 +149,7 @@ for i, (file_name, file_path) in enumerate(zip(file_names, file_paths)):
             adapter_model.eval()
             transformer_adapter_model.eval()
 
-            for num_steps in [16]:#[8, 16, 32]:
+            for num_steps in [4]:#[8, 16, 32]:
                 os.makedirs(f'MIDIs/{guide_arch}/{contra_folder}/steps_{num_steps}', exist_ok=True)
 
                 for in_seq in tqdm(patterns):

@@ -602,7 +602,11 @@ def nucleus_token_by_token_generate(
             if guidance_vector is not None:
                 probs_guidance = torch.softmax(logits_guidance[0, masked_positions] / temperature, dim=-1)
                 entropies_guidance = -(probs_guidance * probs_guidance.clamp_min(1e-9).log()).sum(dim=-1)
-                probs_diffs = torch.abs(probs - probs_guidance).sum(dim=-1)
+                # probs_diffs = torch.abs(probs - probs_guidance).sum(dim=-1)
+                p_js = probs.clamp_min(1e-9)
+                q_js = probs_guidance.clamp_min(1e-9)
+                m_js = 0.5*(p_js + q_js)
+                probs_diffs = 0.5 * ((p_js * (p_js.log() - m_js.log())).sum(dim=-1) + (q_js * (q_js.log() - m_js.log())).sum(dim=-1))
         # check probs without guidance
         # and influence position selection based on difference
         if entropies_guidance is not None:
@@ -612,8 +616,9 @@ def nucleus_token_by_token_generate(
                 if k > 0:
                     # print('entropies_guidance: ', entropies_guidance.shape)
                     # print('logits_diffs: ', probs_diffs.shape)
-                    _, guidance_order = torch.topk(entropies_guidance, k, largest=False)
-                    # _, guidance_order = torch.topk(probs_diffs, k, largest=True)
+                    # _, guidance_order = torch.topk(entropies_guidance, k, largest=False)
+                    _, guidance_order = torch.topk(probs_diffs, k, largest=True)
+                    # _, guidance_order = torch.topk(probs_diffs-entropies_guidance, k, largest=True)
                     combined_score[guidance_order] = float('inf')
         else:
             combined_score = entropies.clone()
