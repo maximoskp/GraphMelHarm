@@ -557,7 +557,7 @@ def nucleus_token_by_token_generate(
 
     step = 0
     # guidance_embedding=guidance_vector.to(model.device) if guidance_vector is not None else None
-    
+    start = None
     while (visible_harmony == mask_token_id).any():
         if num_guidance_steps is not None and guidance_vector is not None:
             if (visible_harmony == mask_token_id).sum() <= num_guidance_steps:
@@ -617,9 +617,23 @@ def nucleus_token_by_token_generate(
                     # print('entropies_guidance: ', entropies_guidance.shape)
                     # print('logits_diffs: ', probs_diffs.shape)
                     # _, guidance_order = torch.topk(entropies_guidance, k, largest=False)
-                    _, guidance_order = torch.topk(probs_diffs, k, largest=True)
+
+                    # _, guidance_order = torch.topk(probs_diffs, k, largest=True)
+                    if k >= probs_diffs.numel():
+                        guidance_order = torch.arange(probs_diffs.numel(), dtype=torch.long, device=probs_diffs.device)
+                    else:
+                        if start is None:
+                            # sliding window sums of length k (fast via cumsum)
+                            cumsum = torch.cat([probs_diffs.new_zeros(1), probs_diffs.cumsum(dim=0)])
+                            window_sums = cumsum[k:] - cumsum[:-k]
+                            start = torch.argmax(window_sums).item()
+                        guidance_order = torch.arange(start, start + k, dtype=torch.long, device=probs_diffs.device)
                     # _, guidance_order = torch.topk(probs_diffs-entropies_guidance, k, largest=True)
+                    # print('combined_score: ', combined_score)
                     combined_score[guidance_order] = float('inf')
+                    # print('combined_score: ', combined_score)
+                    # print('start: ', start)
+                    # print('guidance_order: ', guidance_order)
         else:
             combined_score = entropies.clone()
         # end if - guidance vs unguidance component
@@ -628,18 +642,23 @@ def nucleus_token_by_token_generate(
         # print('logits_diffs: ', probs_diffs)
         # print('combined_score: ', combined_score)
 
+        masked_idx = None
         if unmasking_order == 'random':
             pos = masked_positions[torch.randint(0, masked_positions.numel(), (1,))].item()
         elif unmasking_order == 'uncertain':
-            pos = masked_positions[torch.argmax(combined_score)].item()
+            masked_idx = torch.argmax(combined_score)
+            pos = masked_positions[masked_idx].item()
         elif unmasking_order == 'certain':
-            pos = masked_positions[torch.argmin(combined_score)].item()
+            masked_idx = torch.argmin(combined_score)
+            pos = masked_positions[masked_idx].item()
         elif unmasking_order == 'start':
             pos = masked_positions[0].item()
         elif unmasking_order == 'end':
             pos = masked_positions[-1].item()
         else:
             pos = masked_positions[torch.randint(0, masked_positions.numel(), (1,))].item()
+        if start is not None and masked_idx is not None and masked_idx < start:
+            start -= 1
         # print('torch.argmin(combined_score): ', torch.argmin(combined_score))
         # print('masked_positions: ', masked_positions)
         # print('pos: ', pos)

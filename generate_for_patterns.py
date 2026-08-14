@@ -49,7 +49,7 @@ tmp_file_names, tmp_file_paths = absoluteFilePaths(os.getenv('VAL_GJT'))
 file_names += tmp_file_names
 file_paths += tmp_file_paths
 
-device_name = 'cuda:1'
+device_name = 'cuda:2'
 device = torch.device(device_name)
 
 graph_model_path = f'saved_models/LoRA/graph/graph_model_contra_jnhw.pt'
@@ -149,7 +149,7 @@ for i, (file_name, file_path) in enumerate(zip(file_names, file_paths)):
             adapter_model.eval()
             transformer_adapter_model.eval()
 
-            for num_steps in [4]:#[8, 16, 32]:
+            for num_steps in [8]:#[8, 16, 32]:
                 os.makedirs(f'MIDIs/{guide_arch}/{contra_folder}/steps_{num_steps}', exist_ok=True)
 
                 for in_seq in tqdm(patterns):
