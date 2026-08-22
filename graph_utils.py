@@ -7,6 +7,7 @@ from torch_geometric.data import HeteroData
 from tqdm import tqdm
 import ast
 from generate_utils import nucleus_token_by_token_generate
+from computeDIC import computeDICfromMIDI
 
 tokenizer = CSGridMLMTokenizer(
     fixed_length=80,
@@ -20,32 +21,34 @@ tokenizer = CSGridMLMTokenizer(
 chord_features = GridMLM_tokenizers.CHORD_FEATURES
 chord_id_features = {tokenizer.vocab[k]: v for k, v in chord_features.items()}
 
-def append_graph_ready_object_to_dataset(ds, include_melody=False, synthesize_segments=False, model=None, simple_graph=False):
+def append_graph_ready_object_to_dataset(ds, include_melody=False, synthesize_segments=False, model=None, graph_type='manual'):
     new_ds = []
     for i in tqdm(range(len(ds))):
         # print(f"Processing dataset item {i+1}/{len(ds)}", end='\r')
         d = ds[i]
-        graph_ready_object = make_graph_ready_for_dataset_item(d, tokenizer, include_melody=include_melody, simple_graph=simple_graph)
+        graph_ready_object = make_graph_ready_for_dataset_item(d, tokenizer, include_melody=include_melody, graph_type=graph_type)
         d['graph_ready_object'] = graph_ready_object
         if synthesize_segments and model is not None:
-            segs = make_real_and_recomposed_segments(d, 2, 1, 3., model, include_melody=include_melody, simple_graph=simple_graph)
+            segs = make_real_and_recomposed_segments(d, 2, 1, 3., model, include_melody=include_melody, graph_type=graph_type)
             d['segments'] = segs
         new_ds.append(d)
     return new_ds
 # end append_graph_ready_object_to_dataset
 
-def make_graph_ready_for_dataset_item(d, tokenizer, include_melody=False, simple_graph=False):
+def make_graph_ready_for_dataset_item(d, tokenizer, include_melody=False, graph_type='manual'):
     harmony_ids = d['harmony_ids']
     pianoroll = d['pianoroll']
     bars = bar_split(harmony_ids, pianoroll, tokenizer)
     bar_objects = make_bar_objects(bars, include_melody=include_melody)
-    if simple_graph:
+    if graph_type == 'simple':
         return SimpleMelodicHarmonization(bar_objects)
+    elif graph_type == 'DIC':
+        return DICMelodicHarmonization(bar_objects)
     else:
         return MelodicHarmonization(bar_objects)
 # end make_graph_ready_for_dataset_item
 
-def make_real_and_recomposed_segments(d, seg_len, seg_step, temperature, model, include_melody=False, simple_graph=False):
+def make_real_and_recomposed_segments(d, seg_len, seg_step, temperature, model, include_melody=False, graph_type='manual'):
     segs = []
     bar_start, bar_end = 0, seg_len
     while bar_end < d['graph_ready_object'].num_bars:
@@ -85,7 +88,7 @@ def make_real_and_recomposed_segments(d, seg_len, seg_step, temperature, model, 
             # re-make dataset item for constructing graph
             d_recomposed = d.copy()
             d_recomposed['harmony_ids'] = recomposed_harmony_ids.squeeze(0).cpu().numpy().tolist()
-            graph_ready_object = make_graph_ready_for_dataset_item(d_recomposed, tokenizer, include_melody, simple_graph=simple_graph)
+            graph_ready_object = make_graph_ready_for_dataset_item(d_recomposed, tokenizer, include_melody, graph_type=graph_type)
             d_recomposed['graph_ready_object'] = graph_ready_object
             d_recomposed['graph_ready_object'].make_graph_of_segment(bar_start, bar_end)
             recomposed_graph = d_recomposed['graph_ready_object'].segment_graph
@@ -811,6 +814,276 @@ class SimpleMelodicHarmonization:
         self.segment_tokens = torch.tensor(chord_token_ids, dtype=torch.long)
     # end make_token_seq_of_segment
 # end class SimpleMelodicHarmonization
+
+class DICMelodicHarmonization:
+    def __init__(self, bar_objects):
+        self.bar_objects = bar_objects
+        self.num_bars = len(bar_objects)
+        self.segment_bar_end = None
+        self.segment_bar_start = None
+        self.segment_bar_end = None
+        self.segment_graph = None
+        self.segment_bar_start = None
+        self.segment_bar_end = None
+    # end init
+
+    def print_info(self, print_graph=True, print_bars=True):
+        print(f"Number of bars: {self.num_bars}")
+        if print_graph:
+            if self.segment_graph is not None:
+                print(f"Segment bar range: [{self.segment_bar_start}, {self.segment_bar_end})")
+                print("Segment graph features:")
+                print(self.segment_graph)
+                print("Segment graph bars:")
+                for i, bar in enumerate(self.segment_bar_objects):
+                    print(f"Bar {self.segment_bar_start + i + 1}:")
+                    bar.print_info()
+            else:
+                print("No segment graph created yet.")
+        if print_bars:
+            for i, bar in enumerate(self.bar_objects):
+                print(f"Bar {i+1}:")
+                bar.print_info()
+    # end print_info
+
+    def get_valid_bar_segment_range(self, max_length=2):
+        # get a random valid bar segment range of at most max_length bars
+        bars_range = np.random.randint(1, max_length+1)
+        bar_end = np.random.randint(bars_range, self.num_bars+1)
+        bar_start = bar_end - bars_range
+        return bar_start, bar_end
+    # end get_valid_bar_segment_range
+
+    def get_token_positions_of_bar_segment(self):
+        if self.segment_bar_objects is None:
+            raise ValueError("No segment graph created yet.")
+        token_positions = []
+        for bar in self.segment_bar_objects:
+            token_positions.extend(bar.token_positions)
+        return token_positions
+    # end get_token_positions_of_bar_segment
+
+    def make_graph_of_segment(self, bar_start, bar_end):
+        if (
+            bar_start < 0
+            or bar_end > self.num_bars
+            or bar_start >= bar_end
+        ):
+            raise ValueError(
+                "Invalid bar range",
+                bar_start,
+                bar_end
+            )
+
+        self.segment_bar_objects = self.bar_objects[bar_start:bar_end]
+        self.segment_bar_start = bar_start
+        self.segment_bar_end = bar_end
+
+        data = HeteroData()
+
+        # ============================================================
+        # PITCH NODES
+        # ============================================================
+
+        # One node for each of the 12 pitch classes.
+        #
+        # The one-hot identity is retained because the model needs to
+        # know which pitch class each node represents.
+        pitch_onehot = torch.eye(12)
+        data["pitch"].x = pitch_onehot
+
+        # ============================================================
+        # EVENT NODES
+        # ============================================================
+
+        num_events = 0
+
+        # pitch -> event participation edges
+        edge_index_source_list = []
+        edge_index_target_list = []
+
+        # event -> next event temporal edges
+        temporal_edge_source_list = []
+        temporal_edge_target_list = []
+        temporal_edge_attr_list = []
+
+        prev_chord = None
+        for bar in self.segment_bar_objects:
+            for chord in bar.chord_objects:
+                current_event = num_events
+
+                # ----------------------------------------------------
+                # Pitch participation
+                # ----------------------------------------------------
+                for pc in chord.pitch_classes:
+                    edge_index_source_list.append(pc)
+                    edge_index_target_list.append(current_event)
+
+                # ----------------------------------------------------
+                # Temporal relation to previous event
+                # ----------------------------------------------------
+                if prev_chord is not None:
+                    temporal_edge_source_list.append(
+                        current_event - 1
+                    )
+                    temporal_edge_target_list.append(
+                        current_event
+                    )
+
+                    temporal_edge_attr_list.append(
+                        computeDICfromMIDI(
+                            prev_chord.pitch_classes,
+                            chord.pitch_classes
+                        )
+                    )
+
+                prev_chord = chord
+                num_events += 1
+
+        # ============================================================
+        # EVENT NODE FEATURES
+        # ============================================================
+        if num_events > 0:
+            # Normalized position within this graph segment.
+            #
+            # Examples:
+            #
+            # 1 event  -> [0.0]
+            # 2 events -> [0.0, 1.0]
+            # 3 events -> [0.0, 0.5, 1.0]
+            #
+            event_positions = (
+                torch.arange(
+                    num_events,
+                    dtype=torch.float
+                )
+                / max(num_events - 1, 1)
+            ).unsqueeze(-1)
+        else:
+            event_positions = torch.empty(
+                (0, 1),
+                dtype=torch.float
+            )
+
+        data["event"].x = event_positions
+        data["event"].num_nodes = num_events
+
+        # ============================================================
+        # PITCH -> EVENT PARTICIPATION EDGES
+        # ============================================================
+        if len(edge_index_source_list) > 0:
+            edge_index = torch.tensor(
+                [
+                    edge_index_source_list,
+                    edge_index_target_list
+                ],
+                dtype=torch.long
+            )
+        else:
+            edge_index = torch.empty(
+                (2, 0),
+                dtype=torch.long
+            )
+
+        data[
+            "pitch",
+            "participates",
+            "event"
+        ].edge_index = edge_index
+
+        # ------------------------------------------------------------
+        # IMPORTANT:
+        #
+        # There are NO participation edge attributes in the
+        # simplified graph.
+        #
+        # The existence of the edge itself means:
+        #
+        #     pitch class participates in this harmonic event.
+        #
+        # There is no root/third/fifth/etc. information.
+        # ------------------------------------------------------------
+
+        # ============================================================
+        # EVENT -> NEXT EVENT TEMPORAL EDGES
+        # ============================================================
+        if len(temporal_edge_source_list) > 0:
+            temporal_edge_index = torch.tensor(
+                [
+                    temporal_edge_source_list,
+                    temporal_edge_target_list
+                ],
+                dtype=torch.long
+            )
+            temporal_edge_attr = torch.tensor(
+                temporal_edge_attr_list,
+                dtype=torch.float
+            )
+        else:
+            # Important for a single-event graph.
+            temporal_edge_index = torch.empty(
+                (2, 0),
+                dtype=torch.long
+            )
+            # # Shape must be [0, 1], not simply [0].
+            temporal_edge_attr = torch.empty(
+                (0, 12),
+                dtype=torch.float
+            )
+
+        data[
+            "event",
+            "next",
+            "event"
+        ].edge_index = temporal_edge_index
+
+        data[
+            "event",
+            "next",
+            "event"
+        ].edge_attr = temporal_edge_attr
+
+        # ============================================================
+        # STORE GRAPH
+        # ============================================================
+        self.segment_graph = data
+
+        return data
+
+    # end make_graph_of_segment
+
+    def make_bilstm_seq_of_segment(self, bar_start, bar_end):
+        # make a binary pc representation of the segment from bar_start to bar_end (exclusive)
+        # using the bar_objects
+        if bar_start < 0 or bar_end > self.num_bars or bar_start >= bar_end:
+            raise ValueError("Invalid bar range")
+        self.segment_bar_objects = self.bar_objects[bar_start:bar_end]
+        self.segment_bar_start = bar_start
+        self.segment_bar_end = bar_end
+
+        tmp_bilstm_segment = []
+        for bar in self.segment_bar_objects:
+            for chord in bar.chord_objects:
+                tmp_bilstm_segment.append(chord.bilstm_features)
+        self.segment_bilstm = torch.stack(tmp_bilstm_segment)
+    # end make_bilstm_seq_of_segment
+
+    def make_token_seq_of_segment(self, bar_start, bar_end):
+        # make a harmony token representation of the segment from bar_start to bar_end (exclusive)
+        # using the bar_objects
+        if bar_start < 0 or bar_end > self.num_bars or bar_start >= bar_end:
+            raise ValueError("Invalid bar range")
+        self.segment_bar_objects = self.bar_objects[bar_start:bar_end]
+        self.segment_bar_start = bar_start
+        self.segment_bar_end = bar_end
+
+        chord_token_ids = []
+        for b in self.segment_bar_objects:
+            for c in b.chord_objects:
+                chord_token_ids.append( c.chord_id )
+        self.segment_tokens = torch.tensor(chord_token_ids, dtype=torch.long)
+    # end make_token_seq_of_segment
+# end class DICMelodicHarmonization
 
 # class StringMelodicHarmonization:
 #     def __init__

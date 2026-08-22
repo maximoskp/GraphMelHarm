@@ -24,7 +24,10 @@ scripts=(
     # "train_token_bilstm.py -v FiLM -d jnhw -m 0 -c 1 -g 2 -e 100 -l 1e-4 -b 16"
 
     # "train_adapter.py -v LoRA -d jnhw -m 0 -c 1 -g 2 -e 100 -l 1e-4 -b 16"
-    "train_adapter.py -v LoRA -d jnhw -m 0 -c 0 -g 1 -e 100 -l 1e-4 -b 16"
+    # "train_adapter.py -v LoRA -d jnhw -m 0 -c 0 -g 1 -e 100 -l 1e-4 -b 16"
+
+    "train_simple_graph.py -v LoRA -d jnhw -m 0 -c 1 -g 1 -e 100 -l 1e-4 -b 16"
+    "train_simple_adapter.py -v LoRA -d jnhw -m 0 -c 1 -g 1 -e 100 -l 1e-4 -b 16"
 )
 
 # Name of the conda environment

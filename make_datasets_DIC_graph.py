@@ -20,7 +20,7 @@ tokenizer = CSGridMLMTokenizer(
     use_full_range_melody=False
 )
 
-device_name = 'cuda:1'
+device_name = 'cuda:2'
 
 if torch.cuda.is_available():
     device = torch.device(device_name)
@@ -48,13 +48,13 @@ if 'j' in datasets:
     train_dataset = CSGridMLMDataset(train_path, tokenizer, frontloading=True, name_suffix='Q4_L80_bar_PC')
     test_dataset = CSGridMLMDataset(test_path, tokenizer, frontloading=True, name_suffix='Q4_L80_bar_PC')
     print('making graphs - no melody')
-    gjt_train = append_graph_ready_object_to_dataset(train_dataset, include_melody=False, synthesize_segments=True, model=model, graph_type='simple')
-    gjt_test = append_graph_ready_object_to_dataset(test_dataset, include_melody=False, synthesize_segments=True, model=model, graph_type='simple')
+    gjt_train = append_graph_ready_object_to_dataset(train_dataset, include_melody=False, synthesize_segments=True, model=model, graph_type='DIC')
+    gjt_test = append_graph_ready_object_to_dataset(test_dataset, include_melody=False, synthesize_segments=True, model=model, graph_type='DIC')
     print('saving')
-    os.makedirs('data/simple', exist_ok=True)
-    with open('data/simple/gjt_train.pkl', 'wb') as f:
+    os.makedirs('data/DIC', exist_ok=True)
+    with open('data/DIC/gjt_train.pkl', 'wb') as f:
         pickle.dump(gjt_train, f)
-    with open('data/simple/gjt_test.pkl', 'wb') as f:
+    with open('data/DIC/gjt_test.pkl', 'wb') as f:
         pickle.dump(gjt_test, f)
     # print('making graphs - with melody')
     # gjt_train = append_graph_ready_object_to_dataset(train_dataset, include_melody=True)
@@ -74,12 +74,12 @@ if 'h' in datasets:
     train_dataset = CSGridMLMDataset(train_path, tokenizer, frontloading=True, name_suffix='Q4_L80_bar_PC')
     test_dataset = CSGridMLMDataset(test_path, tokenizer, frontloading=True, name_suffix='Q4_L80_bar_PC')
     print('making graphs - no melody')
-    hook_train = append_graph_ready_object_to_dataset(train_dataset, include_melody=False, synthesize_segments=True, model=model, graph_type='simple')
-    hook_test = append_graph_ready_object_to_dataset(test_dataset, include_melody=False, synthesize_segments=True, model=model, graph_type='simple')
+    hook_train = append_graph_ready_object_to_dataset(train_dataset, include_melody=False, synthesize_segments=True, model=model, graph_type='DIC')
+    hook_test = append_graph_ready_object_to_dataset(test_dataset, include_melody=False, synthesize_segments=True, model=model, graph_type='DIC')
     print('saving')
-    with open('data/simple/hook_train.pkl', 'wb') as f:
+    with open('data/DIC/hook_train.pkl', 'wb') as f:
         pickle.dump(hook_train, f)
-    with open('data/simple/hook_test.pkl', 'wb') as f:
+    with open('data/DIC/hook_test.pkl', 'wb') as f:
         pickle.dump(hook_test, f)
     # print('making graphs - with melody')
     # hook_train = append_graph_ready_object_to_dataset(train_dataset, include_melody=True)
@@ -99,12 +99,12 @@ if 'w' in datasets:
     train_dataset = CSGridMLMDataset(train_path, tokenizer, frontloading=True, name_suffix='Q4_L80_bar_PC')
     test_dataset = CSGridMLMDataset(test_path, tokenizer, frontloading=True, name_suffix='Q4_L80_bar_PC')
     print('making graphs - no melody')
-    wiki_train = append_graph_ready_object_to_dataset(train_dataset, include_melody=False, synthesize_segments=True, model=model, graph_type='simple')
-    wiki_test = append_graph_ready_object_to_dataset(test_dataset, include_melody=False, synthesize_segments=True, model=model, graph_type='simple')
+    wiki_train = append_graph_ready_object_to_dataset(train_dataset, include_melody=False, synthesize_segments=True, model=model, graph_type='DIC')
+    wiki_test = append_graph_ready_object_to_dataset(test_dataset, include_melody=False, synthesize_segments=True, model=model, graph_type='DIC')
     print('saving')
-    with open('data/simple/wiki_train.pkl', 'wb') as f:
+    with open('data/DIC/wiki_train.pkl', 'wb') as f:
         pickle.dump(wiki_train, f)
-    with open('data/simple/wiki_test.pkl', 'wb') as f:
+    with open('data/DIC/wiki_test.pkl', 'wb') as f:
         pickle.dump(wiki_test, f)
     # print('making graphs - with melody')
     # wiki_train = append_graph_ready_object_to_dataset(train_dataset, include_melody=True)
@@ -124,12 +124,12 @@ if 'n' in datasets:
     train_dataset = CSGridMLMDataset(train_path, tokenizer, frontloading=True, name_suffix='Q4_L80_bar_PC')
     test_dataset = CSGridMLMDataset(test_path, tokenizer, frontloading=True, name_suffix='Q4_L80_bar_PC')
     print('making graphs - no melody')
-    nott_train = append_graph_ready_object_to_dataset(train_dataset, include_melody=False, synthesize_segments=True, model=model, graph_type='simple')
-    nott_test = append_graph_ready_object_to_dataset(test_dataset, include_melody=False, synthesize_segments=True, model=model, graph_type='simple')
+    nott_train = append_graph_ready_object_to_dataset(train_dataset, include_melody=False, synthesize_segments=True, model=model, graph_type='DIC')
+    nott_test = append_graph_ready_object_to_dataset(test_dataset, include_melody=False, synthesize_segments=True, model=model, graph_type='DIC')
     print('saving')
-    with open('data/simple/nott_train.pkl', 'wb') as f:
+    with open('data/DIC/nott_train.pkl', 'wb') as f:
         pickle.dump(nott_train, f)
-    with open('data/simple/nott_test.pkl', 'wb') as f:
+    with open('data/DIC/nott_test.pkl', 'wb') as f:
         pickle.dump(nott_test, f)
     # print('making graphs - with melody')
     # nott_train = append_graph_ready_object_to_dataset(train_dataset, include_melody=True)
