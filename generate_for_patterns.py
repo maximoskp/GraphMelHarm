@@ -73,7 +73,7 @@ for i, (file_name, file_path) in enumerate(zip(file_names, file_paths)):
     tmp_file_path = f'MIDIs/no_guide/'
     tmp_name_suffix = f'{file_name}_no'
     tmp_file_name = 'gen_' + tmp_name_suffix
-    gen_out = generate_files_with_nucleus(
+    gen_out_no = generate_files_with_nucleus(
         transformer_graph,
         tokenizer,
         input_f_path=file_path,
@@ -154,22 +154,22 @@ for i, (file_name, file_path) in enumerate(zip(file_names, file_paths)):
 
                 for in_seq in tqdm(patterns):
                     # eval no guidance
-                    eval, activation_diff, bars_of_interest = eval_for_chords_string(
+                    eval, activation_diff, bars_of_interest, guidance_drag = eval_for_chords_string(
                         in_seq, tokenizer,
-                        harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        harmony_ids=gen_out_no['gen_output_token_ids'][0].tolist(),
                         graph_model=graph_model,
                         bilstm_model=bilstm_model,
                         token_model=token_bilstm_model,
-                        decoded_order=gen_out['decoded_positions_order'],
+                        decoded_order=gen_out_no['decoded_positions_order'],
                         num_guidance_steps=num_steps
                     )
-                    eval_a, activation_diff_a, bars_of_interest_a = eval_for_chords_string(
+                    eval_a, activation_diff_a, bars_of_interest_a, guidance_drag_a = eval_for_chords_string(
                         in_seq, tokenizer,
-                        harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        harmony_ids=gen_out_no['gen_output_token_ids'][0].tolist(),
                         graph_model=graph_adapter_model,
                         token_model=token_adapter_model,
                         adapter_model=adapter_model,
-                        decoded_order=gen_out['decoded_positions_order'],
+                        decoded_order=gen_out_no['decoded_positions_order'],
                         num_guidance_steps=num_steps
                     )
                     tmp_results = {
@@ -183,10 +183,15 @@ for i, (file_name, file_path) in enumerate(zip(file_names, file_paths)):
                         tmp_results[k] = v
                     for k, v in activation_diff_a.items():
                         tmp_results[k + '_a'] = v
+                    # no drag to compute for no guidance
+                    for k, _ in activation_diff.items():
+                        tmp_results['drag_' + k] = None
+                    for k, _ in activation_diff_a.items():
+                        tmp_results['drag_' + k + '_a'] = None
                     tmp_results['non_serializable'] = {
                         'eval_object': eval,
                         'eval_adapter_object': eval_a,
-                        'gen_out_object': gen_out,
+                        'gen_out_object': gen_out_no,
                         'bars_of_interest': bars_of_interest
                     }
                     results_all.append(tmp_results)
@@ -225,18 +230,20 @@ for i, (file_name, file_path) in enumerate(zip(file_names, file_paths)):
                         guidance_position_weight=guidance_position_weight
                     )
                     # eval graph
-                    eval, activation_diff, bars_of_interest = eval_for_chords_string(
+                    eval, activation_diff, bars_of_interest, guidance_drag = eval_for_chords_string(
                         in_seq, tokenizer,
                         harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        unguided_harmony_ids=gen_out_no['gen_output_token_ids'][0].tolist(),
                         graph_model=graph_model,
                         bilstm_model=bilstm_model,
                         token_model=token_bilstm_model,
                         decoded_order=gen_out['decoded_positions_order'],
                         num_guidance_steps=num_steps
                     )
-                    eval_a, activation_diff_a, bars_of_interest_a = eval_for_chords_string(
+                    eval_a, activation_diff_a, bars_of_interest_a, guidance_drag_a = eval_for_chords_string(
                         in_seq, tokenizer,
                         harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        unguided_harmony_ids=gen_out_no['gen_output_token_ids'][0].tolist(),
                         graph_model=graph_adapter_model,
                         token_model=token_adapter_model,
                         adapter_model=adapter_model,
@@ -254,6 +261,10 @@ for i, (file_name, file_path) in enumerate(zip(file_names, file_paths)):
                         tmp_results[k] = v
                     for k, v in activation_diff_a.items():
                         tmp_results[k + '_a'] = v
+                    for k, v in guidance_drag.items():
+                        tmp_results['drag_' + k] = v
+                    for k, v in guidance_drag_a.items():
+                        tmp_results['drag_' + k + '_a'] = v
                     tmp_results['non_serializable'] = {
                         'eval_object': eval,
                         'eval_adapter_object': eval_a,
@@ -285,18 +296,20 @@ for i, (file_name, file_path) in enumerate(zip(file_names, file_paths)):
                         guidance_position_weight=guidance_position_weight
                     )
                     # eval bilstm
-                    eval, activation_diff, bars_of_interest = eval_for_chords_string(
+                    eval, activation_diff, bars_of_interest, guidance_drag = eval_for_chords_string(
                         in_seq, tokenizer,
                         harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        unguided_harmony_ids=gen_out_no['gen_output_token_ids'][0].tolist(),
                         graph_model=graph_model,
                         bilstm_model=bilstm_model,
                         token_model=token_bilstm_model,
                         decoded_order=gen_out['decoded_positions_order'],
                         num_guidance_steps=num_steps
                     )
-                    eval_a, activation_diff_a, bars_of_interest_a = eval_for_chords_string(
+                    eval_a, activation_diff_a, bars_of_interest_a, guidance_drag_a = eval_for_chords_string(
                         in_seq, tokenizer,
                         harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        unguided_harmony_ids=gen_out_no['gen_output_token_ids'][0].tolist(),
                         graph_model=graph_adapter_model,
                         token_model=token_adapter_model,
                         adapter_model=adapter_model,
@@ -314,6 +327,10 @@ for i, (file_name, file_path) in enumerate(zip(file_names, file_paths)):
                         tmp_results[k] = v
                     for k, v in activation_diff_a.items():
                         tmp_results[k + '_a'] = v
+                    for k, v in guidance_drag.items():
+                        tmp_results['drag_' + k] = v
+                    for k, v in guidance_drag_a.items():
+                        tmp_results['drag_' + k + '_a'] = v
                     tmp_results['non_serializable'] = {
                         'eval_object': eval,
                         'eval_adapter_object': eval_a,
@@ -345,18 +362,20 @@ for i, (file_name, file_path) in enumerate(zip(file_names, file_paths)):
                         guidance_position_weight=guidance_position_weight
                     )
                     # eval token
-                    eval, activation_diff, bars_of_interest = eval_for_chords_string(
+                    eval, activation_diff, bars_of_interest, guidance_drag_a = eval_for_chords_string(
                         in_seq, tokenizer,
                         harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        unguided_harmony_ids=gen_out_no['gen_output_token_ids'][0].tolist(),
                         graph_model=graph_model,
                         bilstm_model=bilstm_model,
                         token_model=token_bilstm_model,
                         decoded_order=gen_out['decoded_positions_order'],
                         num_guidance_steps=num_steps
                     )
-                    eval_a, activation_diff_a, bars_of_interest_a = eval_for_chords_string(
+                    eval_a, activation_diff_a, bars_of_interest_a, guidance_drag_a = eval_for_chords_string(
                         in_seq, tokenizer,
                         harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        unguided_harmony_ids=gen_out_no['gen_output_token_ids'][0].tolist(),
                         graph_model=graph_adapter_model,
                         token_model=token_adapter_model,
                         adapter_model=adapter_model,
@@ -374,6 +393,10 @@ for i, (file_name, file_path) in enumerate(zip(file_names, file_paths)):
                         tmp_results[k] = v
                     for k, v in activation_diff_a.items():
                         tmp_results[k + '_a'] = v
+                    for k, v in guidance_drag.items():
+                        tmp_results['drag_' + k] = v
+                    for k, v in guidance_drag_a.items():
+                        tmp_results['drag_' + k + '_a'] = v
                     tmp_results['non_serializable'] = {
                         'eval_object': eval,
                         'eval_adapter_object': eval_a,
@@ -405,18 +428,20 @@ for i, (file_name, file_path) in enumerate(zip(file_names, file_paths)):
                         guidance_position_weight=guidance_position_weight
                     )
                     # eval adapter
-                    eval, activation_diff, bars_of_interest = eval_for_chords_string(
+                    eval, activation_diff, bars_of_interest, guidance_drag = eval_for_chords_string(
                         in_seq, tokenizer,
                         harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        unguided_harmony_ids=gen_out_no['gen_output_token_ids'][0].tolist(),
                         graph_model=graph_model,
                         bilstm_model=bilstm_model,
                         token_model=token_bilstm_model,
                         decoded_order=gen_out['decoded_positions_order'],
                         num_guidance_steps=num_steps
                     )
-                    eval_a, activation_diff_a, bars_of_interest_a = eval_for_chords_string(
+                    eval_a, activation_diff_a, bars_of_interest_a, guidance_drag_a = eval_for_chords_string(
                         in_seq, tokenizer,
                         harmony_ids=gen_out['gen_output_token_ids'][0].tolist(),
+                        unguided_harmony_ids=gen_out_no['gen_output_token_ids'][0].tolist(),
                         graph_model=graph_adapter_model,
                         token_model=token_adapter_model,
                         adapter_model=adapter_model,
@@ -434,6 +459,10 @@ for i, (file_name, file_path) in enumerate(zip(file_names, file_paths)):
                         tmp_results[k] = v
                     for k, v in activation_diff_a.items():
                         tmp_results[k + '_a'] = v
+                    for k, v in guidance_drag.items():
+                        tmp_results['drag_' + k] = v
+                    for k, v in guidance_drag_a.items():
+                        tmp_results['drag_' + k + '_a'] = v
                     tmp_results['non_serializable'] = {
                         'eval_object': eval,
                         'eval_adapter_object': eval_a,

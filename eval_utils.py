@@ -14,6 +14,7 @@ def eval_for_chords_string(
     tokenizer,
     file_path=None,
     harmony_ids=None,
+    unguided_harmony_ids=None,
     graph_model=None,
     bilstm_model=None,
     token_model=None,
@@ -86,7 +87,6 @@ def eval_for_chords_string(
         # print('============ =============== ===============')
         bar_start += seg_step
         bar_end = bar_start + seg_len
-
     if num_guidance_steps is not None and decoded_order is not None:
         positions_of_interest = np.sort(decoded_order[-num_guidance_steps:])
 
@@ -102,15 +102,59 @@ def eval_for_chords_string(
             pos_i += 1
             if pos_i in positions_of_interest:
                 bars_of_interest.append(bar_i)
-        bars_of_interest = np.array(list(set(bars_of_interest)))
+        bars_of_interest = np.sort(list(set(bars_of_interest)))
         activation_diff = {}
         for k,v in per_bar_similarity.items():
             vc = deepcopy(v)
             try:
                 activation_diff[k] = np.mean(vc[bars_of_interest]) - np.mean(np.delete(vc, bars_of_interest))
             except:
-                print(bars_of_interest)
-        return per_bar_similarity, activation_diff, bars_of_interest
+                print('bars_of_interest problem: ', bars_of_interest)
+        # measure guidance drag, i.e., guided vs unguided similarity with guidance sequence
+        guidance_drag = None
+        if unguided_harmony_ids is not None:
+            try:
+                guidance_drag = {}
+                m_unguided = make_graph_ready_for_token_ids(unguided_harmony_ids, tokenizer)
+                bar_start, bar_end = bars_of_interest[0], bars_of_interest[-1]
+                m.make_graph_of_segment(bar_start, bar_end)
+                m.make_bilstm_seq_of_segment(bar_start, bar_end)
+                m.make_token_seq_of_segment(bar_start, bar_end)
+                m_unguided.make_graph_of_segment(bar_start, bar_end)
+                m_unguided.make_bilstm_seq_of_segment(bar_start, bar_end)
+                m_unguided.make_token_seq_of_segment(bar_start, bar_end)
+                # graph
+                if graph_model is not None:
+                    seg_y_graph = graph_model(m.segment_graph)
+                    seg_y_graph_unguided = graph_model(m_unguided.segment_graph)
+                    graph_sim = cos(y_graph, seg_y_graph).item()
+                    graph_sim_unguided = cos(y_graph, seg_y_graph_unguided).item()
+                    guidance_drag['graph'] = graph_sim - graph_sim_unguided
+                # print(per_bar_similarity['graph'][1])
+                # bilstm
+                if bilstm_model is not None:
+                    seg_y_bilstm = bilstm_model(m.segment_bilstm.unsqueeze(0).to(device), torch.tensor([m.segment_bilstm.shape[0]]).to(device))
+                    seg_y_bilstm_unguided = bilstm_model(m_unguided.segment_bilstm.unsqueeze(0).to(device), torch.tensor([m_unguided.segment_bilstm.shape[0]]).to(device))
+                    bilstm_sim = cos(y_bilstm, seg_y_bilstm).item()
+                    bilstm_sim_unguided = cos(y_bilstm, seg_y_bilstm_unguided).item()
+                    guidance_drag['bilstm'] = bilstm_sim - bilstm_sim_unguided
+                # token
+                if token_model is not None:
+                    seg_y_token = token_model(m.segment_tokens.unsqueeze(0).to(device), torch.tensor([m.segment_tokens.shape[0]]).to(device))
+                    seg_y_token_unguided = token_model(m_unguided.segment_tokens.unsqueeze(0).to(device), torch.tensor([m_unguided.segment_tokens.shape[0]]).to(device))
+                    tokens_sim = cos(y_token_bilstm, seg_y_token).item()
+                    tokens_sim_unguided = cos(y_token_bilstm, seg_y_token_unguided).item()
+                    guidance_drag['token'] = tokens_sim - tokens_sim_unguided
+                # adapter
+                if adapter_model is not None and graph_model is not None and token_model is not None:
+                    seg_y_adapter = adapter_model(seg_y_graph.unsqueeze(0), seg_y_token)
+                    seg_y_adapter_unguided = adapter_model(seg_y_graph_unguided.unsqueeze(0), seg_y_token_unguided)
+                    adapter_sim = cos(y_adapter, seg_y_adapter).item()
+                    adapter_sim_unguided = cos(y_adapter, seg_y_adapter_unguided).item()
+                    guidance_drag['adapter'] = adapter_sim - adapter_sim_unguided
+            except:
+                print('bar limits problem: ', file_path)
+        return per_bar_similarity, activation_diff, bars_of_interest, guidance_drag
 
     return per_bar_similarity
 # end eval_for_chords_string
